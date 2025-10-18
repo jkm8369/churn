@@ -1,0 +1,387 @@
+/* 전역 스타일 */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f8f9fa;
+}
+
+/* 사이드바 스타일 */
+.sidebar {
+    position: fixed;
+    top: 56px;
+    bottom: 0;
+    left: 0;
+    z-index: 100;
+    padding: 0;
+    box-shadow: inset -1px 0 0 rgba(0, 0, 0, .1);
+    overflow-y: auto;
+    background-color: #f8f9fa;
+}
+
+.sidebar-heading {
+    padding: 1rem;
+    color: #495057;
+    border-bottom: 1px solid #dee2e6;
+    margin-bottom: 0;
+}
+
+/* 메인 콘텐츠 영역 */
+main {
+    margin-left: 0;
+    padding-top: 56px;
+}
+
+@media (min-width: 768px) {
+    main {
+        margin-left: 16.66667%;
+    }
+}
+
+@media (min-width: 992px) {
+    main {
+        margin-left: 16.66667%;
+    }
+}
+
+/* 지표 카드 스타일 */
+.metric-card {
+    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.metric-card .card-title {
+    font-size: 2.5rem;
+    font-weight: bold;
+    margin-bottom: 0.5rem;
+}
+
+/* 차트 컨테이너 */
+.card {
+    border: none;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 1.5rem;
+}
+
+.card-header {
+    background-color: #fff;
+    border-bottom: 1px solid #dee2e6;
+    font-weight: 600;
+}
+
+/* 진행률 바 애니메이션 */
+.progress-bar {
+    transition: width 0.6s ease;
+}
+
+/* 사이드바 카드 스타일 */
+.sidebar .card {
+    border-radius: 0.375rem;
+    margin-bottom: 1rem;
+}
+
+.sidebar .card-header {
+    background-color: #e9ecef;
+    font-weight: 600;
+    font-size: 0.875rem;
+    padding: 0.5rem 0.75rem;
+}
+
+.sidebar .card-body {
+    padding: 0.75rem;
+}
+
+/* 폼 요소 스타일 */
+.form-control-sm {
+    font-size: 0.875rem;
+}
+
+.form-check {
+    margin-bottom: 0.5rem;
+}
+
+.form-check-input:checked {
+    background-color: #007bff;
+    border-color: #007bff;
+}
+
+/* 버튼 스타일 */
+.btn {
+    border-radius: 0.375rem;
+    font-weight: 500;
+}
+
+.btn-lg {
+    padding: 0.75rem 1.25rem;
+    font-size: 1.125rem;
+}
+
+#runAnalysisBtn {
+    background: linear-gradient(45deg, #007bff, #0056b3);
+    border: none;
+    transition: all 0.3s ease;
+}
+
+#runAnalysisBtn:hover {
+    background: linear-gradient(45deg, #0056b3, #004085);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,123,255,0.3);
+}
+
+#runAnalysisBtn:disabled {
+    background: #6c757d;
+    transform: none;
+    box-shadow: none;
+}
+
+/* 탭 스타일 */
+.nav-tabs .nav-link {
+    color: #495057;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: none;
+}
+
+.nav-tabs .nav-link.active {
+    color: #007bff;
+    border-bottom-color: #007bff;
+    background: none;
+}
+
+.nav-tabs .nav-link:hover {
+    border-bottom-color: #007bff;
+    background: none;
+}
+
+/* 리포트 스타일 */
+.list-unstyled li {
+    padding: 0.25rem 0;
+}
+
+/* 로그 출력 스타일 */
+#logOutput {
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+
+#logOutput .text-success {
+    color: #28a745 !important;
+}
+
+#logOutput .text-info {
+    color: #17a2b8 !important;
+}
+
+#logOutput .text-warning {
+    color: #ffc107 !important;
+}
+
+#logOutput .text-danger {
+    color: #dc3545 !important;
+}
+
+#logOutput .text-muted {
+    color: #6c757d !important;
+}
+
+/* 차트 반응형 */
+canvas {
+    max-width: 100%;
+    height: auto !important;
+}
+
+/* 스크롤바 스타일 */
+.sidebar::-webkit-scrollbar {
+    width: 6px;
+}
+
+.sidebar::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+#logOutput::-webkit-scrollbar {
+    width: 8px;
+}
+
+#logOutput::-webkit-scrollbar-track {
+    background: #2d3748;
+}
+
+#logOutput::-webkit-scrollbar-thumb {
+    background: #4a5568;
+    border-radius: 4px;
+}
+
+#logOutput::-webkit-scrollbar-thumb:hover {
+    background: #718096;
+}
+
+/* 애니메이션 */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.metric-card {
+    animation: fadeIn 0.5s ease-out;
+}
+
+.card {
+    animation: fadeIn 0.6s ease-out;
+}
+
+/* 반응형 디자인 */
+@media (max-width: 767px) {
+    .sidebar {
+        position: relative;
+        top: 0;
+        height: auto;
+    }
+    
+    main {
+        margin-left: 0;
+        padding-top: 1rem;
+    }
+    
+    .metric-card .card-title {
+        font-size: 2rem;
+    }
+    
+    .row.mb-4 .col-md-3 {
+        margin-bottom: 1rem;
+    }
+}
+
+/* 로딩 스피너 */
+.spinner-border-sm {
+    width: 1rem;
+    height: 1rem;
+}
+
+/* 성공/에러 메시지 */
+.alert {
+    border-radius: 0.375rem;
+    border: none;
+}
+
+.alert-success {
+    background-color: #d4edda;
+    color: #155724;
+}
+
+.alert-danger {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+.alert-warning {
+    background-color: #fff3cd;
+    color: #856404;
+}
+
+.alert-info {
+    background-color: #d1ecf1;
+    color: #0c5460;
+}
+
+/* 파일 업로드 스타일 */
+.form-control[type="file"] {
+    padding: 0.25rem 0.5rem;
+}
+
+.form-control[type="file"]::-webkit-file-upload-button {
+    padding: 0.25rem 0.5rem;
+    margin-right: 0.5rem;
+    background-color: #e9ecef;
+    border: 1px solid #ced4da;
+    border-radius: 0.25rem;
+    color: #495057;
+    cursor: pointer;
+}
+
+.form-control[type="file"]::-webkit-file-upload-button:hover {
+    background-color: #dee2e6;
+}
+
+/* 세그먼트 차트 범례 스타일 */
+.chart-legend {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 1rem;
+}
+
+.chart-legend-item {
+    display: flex;
+    align-items: center;
+    margin: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+
+.chart-legend-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    margin-right: 0.5rem;
+}
+
+/* 툴팁 스타일 */
+.tooltip {
+    font-size: 0.875rem;
+}
+
+/* 접근성 개선 */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* 포커스 스타일 */
+.btn:focus,
+.form-control:focus,
+.form-check-input:focus {
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+/* 다크 모드 지원 (선택사항) */
+@media (prefers-color-scheme: dark) {
+    body {
+        background-color: #1a1a1a;
+        color: #ffffff;
+    }
+    
+    .sidebar {
+        background-color: #2d3748;
+        color: #ffffff;
+    }
+    
+    .card {
+        background-color: #2d3748;
+        color: #ffffff;
+    }
+    
+    .card-header {
+        background-color: #4a5568;
+        border-bottom-color: #4a5568;
+    }
+}

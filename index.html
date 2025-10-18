@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>이탈자 분석 시스템 (Churn Analysis Dashboard)</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- 헤더 -->
+    <header class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">
+                <i class="fas fa-chart-line me-2"></i>
+                이탈자 분석 시스템 (Churn Analysis Dashboard)
+            </span>
+            <span class="navbar-text">
+                v1.0 | 2025-10-10
+            </span>
+        </div>
+    </header>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- 사이드바 (설정 패널) -->
+            <nav class="col-md-3 col-lg-2 d-md-block bg-light sidebar">
+                <div class="position-sticky pt-3">
+                    <h5 class="sidebar-heading">
+                        <i class="fas fa-cog me-2"></i>설정 (Configuration)
+                    </h5>
+
+                    <!-- 데이터 업로드 섹션 -->
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <i class="fas fa-upload me-2"></i>데이터 업로드
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-2">
+                                <input type="file" class="form-control form-control-sm" id="csvFile" accept=".csv">
+                            </div>
+                            <button class="btn btn-success btn-sm w-100" id="uploadBtn">
+                                <i class="fas fa-cloud-upload-alt me-1"></i>업로드 실행
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 분석 기간 설정 -->
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <i class="fas fa-calendar me-2"></i>분석 기간
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-2">
+                                <label class="form-label">시작일:</label>
+                                <input type="date" class="form-control form-control-sm" id="startDate" value="2025-08-01">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label">종료일:</label>
+                                <input type="date" class="form-control form-control-sm" id="endDate" value="2025-10-31">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 세그먼트 옵션 -->
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <i class="fas fa-users me-2"></i>세그먼트 분석
+                        </div>
+                        <div class="card-body">
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="genderSegment">
+                                <label class="form-check-label" for="genderSegment">
+                                    성별 (Gender)
+                                </label>
+                            </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="ageSegment">
+                                <label class="form-check-label" for="ageSegment">
+                                    연령대 (Age Band)
+                                </label>
+                            </div>
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="channelSegment">
+                                <label class="form-check-label" for="channelSegment">
+                                    채널 (Channel)
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 비활성 임계값 설정 -->
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <i class="fas fa-clock me-2"></i>비활성 임계값
+                        </div>
+                        <div class="card-body">
+                            <small class="text-muted d-block mb-2">
+                                단기: 30일 | 중기: 60일 | 장기: 90일<br>
+                                재활성 기준: 30일
+                            </small>
+                        </div>
+                    </div>
+
+                    <!-- 실행 버튼 -->
+                    <button class="btn btn-primary btn-lg w-100 mb-3" id="runAnalysisBtn">
+                        <i class="fas fa-play me-2"></i>분석 실행
+                    </button>
+
+                    <!-- 진행 상태 -->
+                    <div class="card">
+                        <div class="card-header">
+                            <i class="fas fa-tasks me-2"></i>실행 상태
+                        </div>
+                        <div class="card-body">
+                            <div class="progress mb-2">
+                                <div class="progress-bar" role="progressbar" style="width: 0%" id="progressBar"></div>
+                            </div>
+                            <small class="text-muted" id="progressText">대기 중...</small>
+                        </div>
+                    </div>
+                </div>
+            </nav>
+
+            <!-- 메인 콘텐츠 영역 -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <!-- 탭 네비게이션 -->
+                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3">
+                    <ul class="nav nav-tabs" id="mainTabs">
+                        <li class="nav-item">
+                            <a class="nav-link active" data-bs-toggle="tab" href="#dashboard">
+                                <i class="fas fa-tachometer-alt me-1"></i>대시보드
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-bs-toggle="tab" href="#report">
+                                <i class="fas fa-file-alt me-1"></i>리포트
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-bs-toggle="tab" href="#logs">
+                                <i class="fas fa-list me-1"></i>로그
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="tab-content">
+                    <!-- 대시보드 탭 -->
+                    <div class="tab-pane fade show active" id="dashboard">
+                        <!-- 주요 지표 카드들 -->
+                        <!-- 분석 상태 및 가이드 -->
+                        <div class="row mb-4">
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <i class="fas fa-file-csv fa-2x text-secondary mb-2"></i>
+                                        <h6 class="card-subtitle mb-2 text-muted">데이터 상태</h6>
+                                        <h5 class="card-title" id="dataStatus">파일 없음</h5>
+                                        <small class="text-muted" id="dataInfo">CSV 파일을 업로드하세요</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <i class="fas fa-calendar-alt fa-2x text-info mb-2"></i>
+                                        <h6 class="card-subtitle mb-2 text-muted">분석 기간</h6>
+                                        <h5 class="card-title" id="periodStatus">미설정</h5>
+                                        <small class="text-muted" id="periodInfo">날짜를 선택하세요</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <i class="fas fa-chart-line fa-2x text-success mb-2"></i>
+                                        <h6 class="card-subtitle mb-2 text-muted">분석 상태</h6>
+                                        <h5 class="card-title" id="analysisStatus">대기중</h5>
+                                        <small class="text-muted" id="analysisInfo">분석 실행을 클릭하세요</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <i class="fas fa-lightbulb fa-2x text-warning mb-2"></i>
+                                        <h6 class="card-subtitle mb-2 text-muted">빠른 도움말</h6>
+                                        <h5 class="card-title">3단계</h5>
+                                        <small class="text-muted">파일 → 기간 → 분석</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 분석 결과 카드 (분석 후에만 표시) -->
+                        <div class="row mb-4" id="metricsRow" style="display: none;">
+                            <div class="col-md-3">
+                                <div class="card text-center metric-card">
+                                    <div class="card-body">
+                                        <h6 class="card-subtitle mb-2 text-muted">전체 이탈률</h6>
+                                        <h2 class="card-title text-danger" id="churnRate">-</h2>
+                                        <p class="card-text">
+                                            <span class="badge bg-secondary" id="churnSeverity">분석필요</span><br>
+                                            <small class="text-muted">이탈자 <strong id="churnedCount">-</strong>명</small>
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-center metric-card">
+                                    <div class="card-body">
+                                        <h6 class="card-subtitle mb-2 text-muted">활성 사용자</h6>
+                                        <h2 class="card-title text-primary" id="activeUsers">-</h2>
+                                        <p class="card-text">
+                                            <span class="badge bg-secondary" id="userTrend">분석필요</span><br>
+                                            <small class="text-muted">증감률 <strong id="userGrowthRate">-</strong></small>
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-center metric-card">
+                                    <div class="card-body">
+                                        <h6 class="card-subtitle mb-2 text-muted">재활성 사용자</h6>
+                                        <h2 class="card-title text-success" id="reactivatedUsers">-</h2>
+                                        <p class="card-text">
+                                            <span class="badge bg-secondary" id="reactivationRate">분석필요</span><br>
+                                            <small class="text-muted">복귀율 <strong id="returnPattern">-</strong></small>
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-center metric-card">
+                                    <div class="card-body">
+                                        <h6 class="card-subtitle mb-2 text-muted">장기 미접속</h6>
+                                        <h2 class="card-title text-warning" id="longTermInactive">-</h2>
+                                        <p class="card-text">
+                                            <span class="badge bg-secondary" id="riskLevel">분석필요</span><br>
+                                            <small class="text-muted">위험도 <strong id="lossRisk">-</strong></small>
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- 리포트 탭 -->
+                    <div class="tab-pane fade" id="report">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">
+                                    <i class="fas fa-file-alt me-2"></i>자동 생성 리포트 미리보기
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <!-- 주요 인사이트 -->
+                                <div class="mb-4">
+                                    <h6 class="text-primary">
+                                        <i class="fas fa-search me-2"></i>주요 인사이트 (Top 3)
+                                    </h6>
+                                    <ul class="list-unstyled">
+                                        <li class="mb-2">
+                                            <i class="fas fa-circle text-muted me-2" style="font-size: 0.5rem;"></i>
+                                            분석을 실행하면 AI 기반 인사이트가 표시됩니다.
+                                        </li>
+                                    </ul>
+                                </div>
+
+                                <!-- 권장 액션 -->
+                                <div class="mb-4">
+                                    <h6 class="text-success">
+                                        <i class="fas fa-lightbulb me-2"></i>권장 액션 (Top 3)
+                                    </h6>
+                                    <ul class="list-unstyled">
+                                        <li class="mb-2">
+                                            <i class="fas fa-arrow-right text-muted me-2"></i>
+                                            분석을 실행하면 맞춤형 권장 액션이 표시됩니다.
+                                        </li>
+                                    </ul>
+                                </div>
+
+                                <!-- 데이터 품질 -->
+                                <div class="mb-4">
+                                    <h6 class="text-warning">
+                                        <i class="fas fa-exclamation-triangle me-2"></i>데이터 품질 및 주의사항
+                                    </h6>
+                                    <ul class="list-unstyled">
+                                        <li class="mb-1">• 총 12,345행 검증 완료 (23행 제외)</li>
+                                        <li class="mb-1">• 50대 세그먼트: 모수 부족으로 Uncertain 라벨 적용</li>
+                                        <li class="mb-1">• 분석 기간: 2025-08 ~ 2025-10 (3개월)</li>
+                                    </ul>
+                                </div>
+
+                                <!-- 생성된 파일 -->
+                                <div>
+                                    <h6 class="text-info">
+                                        <i class="fas fa-folder me-2"></i>생성된 파일
+                                    </h6>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <ul class="list-unstyled">
+                                                <li><a href="#" class="text-decoration-none">• artifacts/metrics_monthly.csv</a></li>
+                                                <li><a href="#" class="text-decoration-none">• artifacts/inactivity_monthly.csv</a></li>
+                                                <li><a href="#" class="text-decoration-none">• logs/validate.log, run.log</a></li>
+                                            </ul>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <ul class="list-unstyled">
+                                                <li><a href="#" class="text-decoration-none">• dashboards/churn_trend.html</a></li>
+                                                <li><a href="#" class="text-decoration-none">• reports/summary_2025-10.md</a></li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 로그 탭 -->
+                    <div class="tab-pane fade" id="logs">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">
+                                    <i class="fas fa-list me-2"></i>실행 로그
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="bg-dark text-light p-3 rounded" style="font-family: monospace; height: 400px; overflow-y: auto;" id="logOutput">
+                                    <!-- 로그는 동적으로 추가됩니다 -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

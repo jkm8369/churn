@@ -1,0 +1,413 @@
+# Cursor Agent 요구사항 정의서 — 이탈자 분석(PoC)
+
+* 버전: v1.0
+* 일자: 2025-10-10
+* 작성: 조강민(이탈자 분석), 보조: 팀원 일동
+
+---
+
+## 1. 개요
+
+**목표:** 커뮤니티 글/댓글 기반으로 월별 **이탈(Churn)** 지표를 산출하고, **세그먼트(성별/연령/채널)** 별 인사이트와 액션 가이드를 자동 생성하는 **Cursor Agent**를 구현한다. 초보자도 버튼/명령 한 번으로 전체 파이프라인을 수행할 수 있어야 한다.
+
+**핵심 성과물:**
+
+1. `reports/summary_YYYY-MM.md` (1페이지 요약 보고서)
+2. `dashboards/`(간단 라인/바 차트 HTML)
+3. `artifacts/metrics_*.csv` (활성/잔존/이탈/세그먼트 결과표)
+4. `logs/`(검증/에러 로그)
+
+---
+
+## 2. 범위 / 비범위
+
+* **범위:** 로컬 CSV 입력 → 전처리 → 월 버킷 → 활성/이탈 계산 → 세그먼트 비교 → 차트/요약 보고서 자동생성 → 로그/검증.
+* **비범위:** 실서비스 연동, 대규모 분산처리, GA 직접 통합(추후 확장 섹션 참고).
+
+---
+
+## 3. 용어 정의(프로젝트 표준)
+
+* **활성 사용자(Aₜ)**: 월 t(YYYY-MM)에 글/댓글 1회 이상 활동한 사용자.
+* **헤비유저**: 같은 월 내 행동 횟수 ≥ 2. (옵션 필터)
+* **이탈 사용자(Cₜ)**: 전월(t-1)에 활성, 당월(t)에 비활성.
+* **이탈률**: `Churnₜ = Cₜ / Aₜ₋₁`.
+* **잔존율**: `Retentionₜ = Rₜ / Aₜ₋₁` (t-1과 t 모두 활성).
+* **세그먼트**: gender(M/F/Unknown), age_band(10s/20s/…), channel(web/app/Unknown).
+* **장기 미접속(inactive_Nd)**: 월말 기준 최근 N일(예: 30/60/90) 동안 활동 0회. 지표 표기: `inactive_30d/60d/90d`.
+* **연속 비활성 개월 수(inactive_streak_months)**: 해당 월까지 연속 비활성인 달 수.
+* **재활성(reactivated)**: 마지막 활동일로부터 N일(기본 30일) 이상 무활동 후 다시 활동 발생.
+
+---
+
+## 4. 이해관계자 / 사용자 스토리
+
+* **조강민(분석 리드):** “CSV만 넣으면 월별 이탈률과 세그먼트 인사이트가 자동으로 만들어졌으면 해.”
+* **운영자:** “성별/연령/채널 중 어디에서 이탈이 높은지 한눈에 보고 액션 가이드를 받고 싶어.”
+* **멘토/리뷰어:** “정의/검증/지표 산출이 일관되고 재현 가능해야 해.”
+
+---
+
+## 5. 입력 데이터(최소 스키마)
+
+* 파일: `data/events.csv` (UTF-8, 헤더 포함)
+* 스키마:
+
+  * `user_hash` (문자열; 익명화된 ID, 고정 salt 적용 필수)
+  * `created_at` (ISO8601, UTC 권장. 예: `2025-09-15T09:20:00Z`)
+  * `action` (`post` | `comment`)
+  * `gender` (`M` | `F` | `Unknown`)
+  * `age_band` (`10s` | `20s` | `30s` | … | `Unknown`)
+  * `channel` (`web` | `app` | `Unknown`)
+
+**샘플 3행**
+
+```
+user_hash,created_at,action,gender,age_band,channel
+u1,2025-08-03T12:10:00Z,post,F,20s,web
+u1,2025-09-15T09:20:00Z,comment,F,20s,web
+u2,2025-08-22T21:03:00Z,post,M,30s,app
+```
+
+**검증 규칙(데이터 밸리데이션):**
+
+* 필수 컬럼 존재/철자 확인.
+* `action ∈ {post, comment}` 외 값은 폐기 및 경고.
+* `created_at` 파싱 실패 → 폐기 및 경고.
+* `gender/age_band/channel` 미지정 → `Unknown`으로 보정.
+
+---
+
+## 6. 산출물(출력)
+
+1. **지표 CSV**: `artifacts/metrics_monthly.csv` (월별 활성/이탈/잔존/이탈률)
+2. **세그먼트 CSV**: `artifacts/metrics_by_segment.csv` (성별/연령/채널 교차)
+3. **대시보드 HTML**: `dashboards/churn_trend.html`, `dashboards/segment_bar.html`
+4. **리포트 MD**: `reports/summary_YYYY-MM.md` (Top3 인사이트 + 액션3)
+5. **로그**: `logs/validate.log`, `logs/run.log`, `logs/warnings.log`
+6. **장기 미접속/재활성 CSV**: `artifacts/inactivity_monthly.csv` (inactive_30d/60d/90d, inactive_streak_months, reactivated)
+
+---
+
+## 7. 리포지토리 구조(권장)
+
+```
+project-root/
+  data/
+    events.csv
+  src/
+    __init__.py
+    config.py
+    validate.py
+    preprocess.py
+    metrics.py
+    segments.py
+    charts.py
+    report.py
+    cli.py
+  configs/
+    config.yaml
+  artifacts/
+  dashboards/
+  reports/
+  logs/
+  tests/
+    test_metrics.py
+    test_segments.py
+  README.md
+```
+
+---
+
+## 8. Cursor Agent 워크플로우(자동화 단계)
+
+1. **설정 로드**: `configs/config.yaml` 읽기(기간, 헤비유저 기준, 세그먼트, 비활성 임계값).
+2. **데이터 검증**: 필수 컬럼/타입/값 검증 → `logs/validate.log`.
+3. **전처리**: `created_at → ym(YYYY-MM)` 버킷팅, 이상치 제거.
+4. **활성 집계**: 월별 사용자 활동 카운트(헤비유저 필터 옵션).
+5. **이탈/잔존 계산**: 전월 vs 당월 비교로 Cₜ, Rₜ, 이탈률 산출.
+6. **장기 미접속 계산(롤링 N일)**: 월말 기준 `inactive_30d/60d/90d` 플래그 산출.
+7. **연속 비활성(streak)**: 사용자별 연속 비활성 개월 수 계산.
+8. **재활성 탐지**: N일 이상 무활동 후 활동 재개한 날짜/월 표기.
+9. **세그먼트 분석**: gender/age_band/channel 별 이탈률 및 비활성 지표 비교.
+10. **차트 생성**: 라인(월별 이탈률), 바(세그먼트 평균, 최근 3개월). 필요 시 비활성 히스토그램 추가.
+11. **요약 리포트 생성**: Top3 인사이트, Uncertain 라벨, 액션 3개.
+12. **산출물 저장**: `artifacts/`, `dashboards/`, `reports/`.
+13. **종료 요약 출력**: 터미널에 파일 경로와 주요 수치 3개.
+
+---
+
+## 9. 기능 요구사항(Functional Requirements)
+
+* **FR-1 설정 관리:** `config.yaml`로 파라미터화(기간 리스트, 헤비유저 임계값, 세그먼트 사용 여부).
+* **FR-2 입력 검증:** 결측/이상값 처리, 경고 로깅.
+* **FR-3 월 버킷팅:** `ym = YYYY-MM` 파생 컬럼 생성.
+* **FR-4 활성 산출:** 월별 `user_hash` 고유 수, `HAVING COUNT(*)>=N` 옵션.
+* **FR-5 이탈/잔존 계산:** `Churnₜ = Cₜ / Aₜ₋₁`, `Retentionₜ = Rₜ / Aₜ₋₁`.
+* **FR-6 세그먼트 교차:** 각 세그먼트 조합별 이탈률 계산.
+* **FR-7 시각화:** Chart.js 또는 matplotlib 기반 단일 페이지 차트 2종 생성.
+* **FR-8 리포트 생성:** 마크다운 템플릿 채워넣기(인사이트/액션 자동 문장화).
+* **FR-9 로그/추적성:** 실행 파라미터/버전/에러를 파일로 남김.
+* **FR-10 테스트:** `tests/`에 최소 단위테스트 2개(이탈/세그먼트) 제공.
+* **FR-11 장기 미접속 계산:** 월말 기준 `inactive_30d/60d/90d` 산출, 임계값은 설정에서 관리.
+* **FR-12 연속 비활성(streak):** 사용자별 연속 비활성 개월 수 계산 및 내보내기.
+* **FR-13 재활성 탐지:** `reactivation_gap_days` 기준으로 복귀 사용자 식별.
+* **FR-14 Uncertain 규칙 확장:** 母수 부족, 연속 비활성 계산 불가 구간 등은 `Uncertain` 라벨.
+
+---
+
+## 10. 비기능 요구사항(Non-Functional)
+
+* **NFR-1 재현성:** 동일 입력/설정 → 동일 출력 보장.
+* **NFR-2 성능:** 10만 행 기준 60초 내 완료(일반 노트북).
+* **NFR-3 보안/개인정보:** 원본 ID 저장 금지, `user_hash`만 사용.
+* **NFR-4 이식성:** Python 3.10+, pandas 의존 최소화.
+* **NFR-5 관찰성:** 진행 단계별 로그, 경고 요약.
+
+---
+
+## 11. 설정 파일 예시(`configs/config.yaml`)
+
+```yaml
+run_id: "poc-2025-10-10"
+input_path: "data/events.csv"
+artifacts_dir: "artifacts"
+reports_dir: "reports"
+dashboards_dir: "dashboards"
+logs_dir: "logs"
+periods: ["2025-08", "2025-09", "2025-10"]
+active_min_actions: 1          # 헤비유저로 하려면 2로 변경
+segments:
+  use_gender: true
+  use_age_band: true
+  use_channel: true
+inactivity_threshold_days: [30, 60, 90]   # 롤링 비활성 임계값
+reactivation_gap_days: 30                  # 재활성 판정 기준
+label_rules:
+  dormant_days: 30                         # 30~89일: Dormant
+  hard_churn_days: 90                      # 90일+: Hard Churn
+charts:
+  recent_months_for_segment_avg: 3
+report:
+  top_k_findings: 3
+  top_k_actions: 3
+uncertain_threshold:
+  min_prev_active: 50          # 母수가 작으면 Uncertain 라벨
+outputs:
+  inactivity_csv: "artifacts/inactivity_monthly.csv"
+```
+
+---
+
+## 12. CLI/명령 설계(`src/cli.py`)
+
+* `python -m src.cli run --config configs/config.yaml`
+* 옵션: `--periods 2025-08,2025-09,2025-10`, `--heavy 2`, `--no-gender`, `--no-age`, `--no-channel`, `--inactivity 30,60,90`, `--reactivation 30`
+
+**실행 결과(예):**
+
+```
+[OK] validated 12,345 rows (dropped 23 invalid)
+[OK] churn 2025-09: 18.2% | 2025-10: 19.7%
+[OK] inactive_30d users (2025-10): 1,243 | reactivated_30d: 112
+[OK] top segment (gender=F, age=50s): churn 27.4% (Uncertain: false)
+Artifacts: artifacts/metrics_monthly.csv, artifacts/inactivity_monthly.csv
+Dashboards: dashboards/churn_trend.html, dashboards/segment_bar.html
+Report: reports/summary_2025-10.md
+```
+
+---
+
+## 13. 리포트 템플릿(`templates/summary.md.j2`)
+
+* 헤더: 실행 날짜, 입력 파일, 기간 범위.
+* **Top 3 인사이트**: 규칙 기반 자동 문장(증감/격차/순위).
+* **액션 3개**: 프롬프트로 생성(LLM 사용 시) 또는 룰기반 추천.
+* **주의/Uncertain**: 母수 부족/편향 시 명시.
+* **장기 미접속 KPI**: `Dormant_30d`, `ChurnRisk_60d`, `HardChurn_90d`, `Reactivated_30d`, `inactive_streak_months` 분포.
+
+예)
+
+* “`gender=F`의 최근 3개월 평균 이탈률이 `M` 대비 **+6.2%p 높음`.”
+* “`age=50s` 세그먼트에서 **2개월 연속 상승**. 신규 주제/가이드 보강 권장.”
+* “`inactive_90d(HardChurn)` 비율이 50대에서 **+3.1%p** 높음. 복귀 유도 캠페인 대상.”
+
+---
+
+## 13-1. 장기 미접속/재활성 SQL 스니펫(참고)
+
+**월말 기준 30/60/90일 무활동**
+
+```sql
+WITH month_end AS (
+  SELECT DISTINCT
+         DATE_FORMAT(LAST_DAY(created_at), '%Y-%m') AS ym,
+         LAST_DAY(created_at) AS month_end
+  FROM events
+),
+users AS (SELECT DISTINCT user_hash FROM events),
+user_month AS (
+  SELECT u.user_hash, m.ym, m.month_end
+  FROM users u CROSS JOIN month_end m
+),
+last_act AS (
+  SELECT um.user_hash, um.ym, um.month_end,
+         (SELECT MAX(e.created_at)
+            FROM events e
+           WHERE e.user_hash = um.user_hash
+             AND e.created_at <= um.month_end) AS last_activity
+  FROM user_month um
+),
+inactivity AS (
+  SELECT
+    user_hash, ym, month_end, last_activity,
+    CASE WHEN last_activity IS NULL OR last_activity < month_end - INTERVAL 30 DAY THEN 1 ELSE 0 END AS inactive_30d,
+    CASE WHEN last_activity IS NULL OR last_activity < month_end - INTERVAL 60 DAY THEN 1 ELSE 0 END AS inactive_60d,
+    CASE WHEN last_activity IS NULL OR last_activity < month_end - INTERVAL 90 DAY THEN 1 ELSE 0 END AS inactive_90d
+  FROM last_act
+)
+SELECT * FROM inactivity ORDER BY ym, user_hash;
+```
+
+**재활성(30일 이상 쉬었다가 복귀)**
+
+```sql
+WITH user_days AS (
+  SELECT user_hash, DATE(created_at) AS d
+  FROM events
+  GROUP BY user_hash, DATE(created_at)
+),
+lagged AS (
+  SELECT user_hash, d,
+         LAG(d) OVER (PARTITION BY user_hash ORDER BY d) AS prev_d
+  FROM user_days
+)
+SELECT user_hash, d AS reactivated_on
+FROM lagged
+WHERE prev_d IS NULL OR DATEDIFF(d, prev_d) >= 30;
+```
+
+**연속 비활성 개월 수(streak) 기초**
+
+```sql
+WITH month_flag AS (
+  SELECT user_hash, DATE_FORMAT(created_at, '%Y-%m') AS ym, 1 AS is_active
+  FROM events
+  GROUP BY user_hash, ym
+)
+SELECT * FROM month_flag;
+-- 실제 연속개월 계산은 에이전트 내 pandas 처리 권장
+```
+
+---
+
+## 14. 에러 처리/메시지 정책
+
+* **입력 오류:** 컬럼 누락 → `E1001 Missing column: {name}`
+* **값 오류:** 잘못된 action → `W2101 Dropped row idx=...`
+* **계산 불가:** 전월 활성 母수=0 → `U3001 Marked as Uncertain`
+* **파일 I/O:** 경로 불가/권한 없음 → `E900x` 코드로 종료.
+
+---
+
+## 15. 테스트 케이스(샘플)
+
+* **TC-01 활성/이탈 계산:**
+
+  * 전월 A=100, 당월 활성=81 → 이탈=19, 이탈률=19%.
+* **TC-02 세그먼트:**
+
+  * gender=M/F 각각 이탈률 산출, 합계가 전체와 합치됨.
+* **TC-03 Uncertain 라벨:**
+
+  * prev_active < `min_prev_active`이면 해당 세그먼트를 보고서에 `Uncertain`로 표기.
+* **TC-04 데이터 정합:**
+
+  * action이 `like`인 행 제거, 로그 경고 발생.
+
+---
+
+## 16. Cursor Agent 프롬프트(권장 템플릿)
+
+**System(고정):**
+
+* “너는 ‘이탈 분석 자동화’에 특화된 개발 에이전트다. 추측 금지, 불확실 시 `Uncertain` 표기. 설정/코드/테스트/리포트/차트를 **한 번 실행**으로 재현 가능하게 만든다.”
+
+**Developer(규칙):**
+
+1. `configs/config.yaml` 파라미터를 우선한다.
+2. 데이터 검증 실패 행은 폐기하고 로그에 남긴다.
+3. 산출물 경로/파일명을 정확히 출력한다.
+4. 테스트를 통과하지 못하면 실패로 간주한다.
+
+**User(명령 예):**
+
+* “`data/events.csv`로 2025-08~2025-10 이탈 분석을 실행하고 요약 보고서를 만들어줘. 헤비유저 기준=2.”
+
+---
+
+## 17. 타임라인/마일스톤
+
+* **D+0~1:** 폴더/파일 스캐폴딩, `config.yaml`/`cli.py` 생성.
+* **D+2:** 전처리/활성/이탈 계산 구현, 간단 테스트.
+* **D+3:** 세그먼트/차트/리포트 자동화.
+* **D+4:** 오류/엣지케이스 보강, 문서화/README.
+
+---
+
+## 18. 보안/개인정보
+
+* 원본 ID 저장 금지, 해시만 사용.
+* 샘플/테스트 데이터는 모두 가명.
+* 산출물에 개인 식별 정보 포함 금지.
+
+---
+
+## 19. 확장 계획(후속)
+
+* **API 수집**: `/ingest` JSON POST(배치) → 로컬 CSV 갱신.
+* **코호트 분석**: 최초활성 월 기준 생존곡선.
+* **LLM 인사이트**: 규칙+LLM 혼합 문장 생성(비용 제한).
+* **GA 보조 통합**: 사용성 이벤트와 교차점 찾기(선택).
+
+---
+
+## 20. 완료 기준(Definition of Done)
+
+* CLI 한 줄로 실행되어 **에러 없이** 모든 산출물 생성.
+* `tests/` 2건 이상 통과.
+* 리포트에 Top3/Action3, Uncertain 표기 정확.
+* README에 사용법/설정/제한 명시.
+* **장기 미접속 산출물 포함**: `artifacts/inactivity_monthly.csv` 생성 및 지표 값 합리성 검토(샘플 테스트 통과).
+
+---
+
+## 21. 부록: 핵심 로직 의사코드
+
+```pseudo
+load config
+validate input -> logs/validate.log
+add ym = YYYY-MM
+active = count_distinct(user_hash by ym) with min_actions filter
+for each ym in periods:
+  prev = ym-1
+  prev_active_users = users active in prev
+  churn_users = prev_active_users minus users active in ym
+  churn_rate = churn_users / prev_active_users
+write metrics_monthly.csv
+for segments in {gender, age_band, channel}:
+  repeat above within each segment value
+render charts -> dashboards/
+render markdown report -> reports/
+print summary & file paths
+```
+
+---
+
+### 체크리스트(초보 모드)
+
+* [ ] `data/events.csv` 준비
+* [ ] `configs/config.yaml` 기간/옵션 설정
+* [ ] `python -m src.cli run` 실행
+* [ ] `reports/summary_YYYY-MM.md` 열어보기
+* [ ] 문제 생기면 `logs/` 확인 후 재실행

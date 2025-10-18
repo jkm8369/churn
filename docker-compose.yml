@@ -1,0 +1,135 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 데이터베이스
+  postgres:
+    image: postgres:15-alpine
+    container_name: churn_postgres
+    environment:
+      POSTGRES_DB: churn_analysis
+      POSTGRES_USER: churn_user
+      POSTGRES_PASSWORD: churn_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U churn_user -d churn_analysis"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis 캐시
+  redis:
+    image: redis:7-alpine
+    container_name: churn_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # FastAPI 백엔드
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: churn_backend
+    environment:
+      - DATABASE_URL=postgresql://churn_user:churn_password@postgres:5432/churn_analysis
+      - REDIS_URL=redis://redis:6379/0
+      - ENVIRONMENT=production
+      - SQL_ECHO=false
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./logs:/app/logs
+      - ./artifacts:/app/artifacts
+      - ./reports:/app/reports
+      - ./dashboards:/app/dashboards
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # Nginx (프론트엔드 서빙 + 리버스 프록시)
+  nginx:
+    image: nginx:alpine
+    container_name: churn_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./frontend:/usr/share/nginx/html
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # 데이터 수집 워커 (선택사항)
+  data_collector:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: churn_collector
+    environment:
+      - DATABASE_URL=postgresql://churn_user:churn_password@postgres:5432/churn_analysis
+      - REDIS_URL=redis://redis:6379/0
+      - WORKER_TYPE=data_collector
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # 분석 스케줄러 (선택사항)
+  scheduler:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: churn_scheduler
+    environment:
+      - DATABASE_URL=postgresql://churn_user:churn_password@postgres:5432/churn_analysis
+      - REDIS_URL=redis://redis:6379/0
+      - WORKER_TYPE=scheduler
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  default:
+    name: churn_network
