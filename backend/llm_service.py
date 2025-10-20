@@ -77,6 +77,10 @@ class LLMInsightGenerator:
             insights = result.get('insights', [])[:3]  # 최대 3개
             actions = result.get('actions', [])[:3]    # 최대 3개
             
+            # 응답 필터링 및 검증
+            insights = self._filter_and_validate_responses(insights, 'insights')
+            actions = self._filter_and_validate_responses(actions, 'actions')
+            
             logger.info(f"LLM 인사이트 생성 완료: {len(insights)}개 인사이트, {len(actions)}개 액션")
             
             return {
@@ -109,7 +113,18 @@ class LLMInsightGenerator:
 - 시간별 트렌드 변화
 - 재활성화 패턴
 - 위험 사용자 그룹
-- 데이터 품질 이슈"""
+- 데이터 품질 이슈
+
+절대 하지 말아야 할 것들:
+- 추측이나 가정에 기반한 분석 금지
+- 데이터에 없는 정보를 임의로 추가하지 말 것
+- 개인정보나 민감한 정보 언급 금지
+- 비윤리적이거나 차별적인 권장사항 제시 금지
+- 법적 조언이나 의료적 조언 제공 금지
+- 마케팅이나 영업 목적의 과장된 표현 사용 금지
+- 선택되지 않은 세그먼트에 대한 분석 결과 언급 금지
+- 통계적으로 유의미하지 않은 차이를 과장하여 설명 금지
+- 불확실한 데이터를 확실한 것처럼 표현 금지"""
 
     def _create_data_summary(self, analysis_data: Dict) -> Dict:
         """분석 데이터를 LLM이 이해하기 쉬운 형태로 요약"""
@@ -239,9 +254,50 @@ class LLMInsightGenerator:
 - 통계적으로 유의미한 차이(5%p 이상)만 언급
 - 데이터가 부족한 세그먼트는 "Uncertain" 표기
 - 구체적인 수치와 함께 설명
-- 실무진이 바로 실행할 수 있는 액션 제시"""
+- 실무진이 바로 실행할 수 있는 액션 제시
+
+금지사항:
+- 데이터에 없는 정보를 추측하거나 가정하지 마세요
+- 개인정보나 민감한 정보를 언급하지 마세요
+- 차별적이거나 편향된 분석을 제공하지 마세요
+- 법적 조언이나 의료적 조언을 제공하지 마세요
+- 과장되거나 부정확한 표현을 사용하지 마세요
+- 선택되지 않은 세그먼트의 데이터를 임의로 해석하지 마세요
+- 통계적으로 유의미하지 않은 차이를 과장하여 설명하지 마세요
+- 불확실한 데이터를 확실한 것처럼 표현하지 마세요"""
 
         return prompt
+    
+    def _filter_and_validate_responses(self, responses: List[str], response_type: str) -> List[str]:
+        """응답 필터링 및 검증"""
+        if not responses:
+            return []
+        
+        filtered_responses = []
+        prohibited_terms = [
+            '개인정보', '민감정보', '법적', '의료', '차별', '편향', 
+            '추측', '가정', '확실하지', '불확실', '과장'
+        ]
+        
+        for response in responses:
+            if not isinstance(response, str) or len(response.strip()) == 0:
+                continue
+                
+            # 금지된 용어가 포함된 응답 필터링
+            if any(term in response for term in prohibited_terms):
+                logger.warning(f"금지된 용어가 포함된 {response_type} 응답 필터링: {response[:50]}...")
+                continue
+            
+            # 응답 길이 검증 (너무 짧거나 긴 응답 제외)
+            if len(response) < 10 or len(response) > 500:
+                logger.warning(f"부적절한 길이의 {response_type} 응답 필터링: {len(response)}자")
+                continue
+            
+            # 기본적인 품질 검증 통과
+            filtered_responses.append(response.strip())
+        
+        # 최대 개수 제한
+        return filtered_responses[:3]
     
     def _generate_fallback_insights(self, analysis_data: Dict) -> Dict[str, List[str]]:
         """LLM 사용 불가 시 API 키 설정 안내"""

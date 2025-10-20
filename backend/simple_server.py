@@ -32,6 +32,37 @@ class AnalysisRequest(BaseModel):
     segments: dict = {"gender": True, "age_band": True, "channel": True}
     calculated_metrics: dict = None  # 프론트엔드에서 계산된 메트릭
 
+def _filter_responses(responses: List[str]) -> List[str]:
+    """응답 필터링 및 검증"""
+    if not responses:
+        return []
+    
+    filtered_responses = []
+    prohibited_terms = [
+        '개인정보', '민감정보', '법적', '의료', '차별', '편향', 
+        '추측', '가정', '확실하지', '불확실', '과장'
+    ]
+    
+    for response in responses:
+        if not isinstance(response, str) or len(response.strip()) == 0:
+            continue
+            
+        # 금지된 용어가 포함된 응답 필터링
+        if any(term in response for term in prohibited_terms):
+            print(f"[WARNING] 금지된 용어가 포함된 응답 필터링: {response[:50]}...")
+            continue
+        
+        # 응답 길이 검증 (너무 짧거나 긴 응답 제외)
+        if len(response) < 10 or len(response) > 500:
+            print(f"[WARNING] 부적절한 길이의 응답 필터링: {len(response)}자")
+            continue
+        
+        # 기본적인 품질 검증 통과
+        filtered_responses.append(response.strip())
+    
+    # 최대 개수 제한
+    return filtered_responses[:3]
+
 def get_real_metrics(request: AnalysisRequest) -> Dict:
     """실제 데이터베이스에서 메트릭 계산"""
     try:
@@ -212,7 +243,18 @@ JSON 형식으로 응답하세요: {{"insights": [...], "actions": [...]}}
             messages=[
                 {
                     "role": "system",
-                    "content": "당신은 사용자 이탈 분석 전문가입니다. 실용적이고 구체적인 인사이트와 권장 액션을 제공하세요."
+                    "content": """당신은 사용자 이탈 분석 전문가입니다. 실용적이고 구체적인 인사이트와 권장 액션을 제공하세요.
+
+절대 하지 말아야 할 것들:
+- 추측이나 가정에 기반한 분석 금지
+- 데이터에 없는 정보를 임의로 추가하지 말 것
+- 개인정보나 민감한 정보 언급 금지
+- 비윤리적이거나 차별적인 권장사항 제시 금지
+- 법적 조언이나 의료적 조언 제공 금지
+- 마케팅이나 영업 목적의 과장된 표현 사용 금지
+- 선택되지 않은 세그먼트에 대한 분석 결과 언급 금지
+- 통계적으로 유의미하지 않은 차이를 과장하여 설명 금지
+- 불확실한 데이터를 확실한 것처럼 표현 금지"""
                 },
                 {
                     "role": "user", 
@@ -226,11 +268,15 @@ JSON 형식으로 응답하세요: {{"insights": [...], "actions": [...]}}
         
         result = json.loads(response.choices[0].message.content)
         
+        # 응답 필터링 및 검증
+        insights = _filter_responses(result.get('insights', [])[:3])
+        actions = _filter_responses(result.get('actions', [])[:3])
+        
         return {
             "analysis_id": f"llm_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
             "timestamp": datetime.now().isoformat(),
-            "insights": result.get('insights', [])[:3],
-            "actions": result.get('actions', [])[:3],
+            "insights": insights,
+            "actions": actions,
             "llm_metadata": {
                 "model_used": "gpt-4o-mini",
                 "generation_method": "llm",
