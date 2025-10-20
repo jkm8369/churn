@@ -213,6 +213,62 @@ class ChurnAnalyzer:
         
         return segments
     
+    def generate_monthly_report(
+        self,
+        month: str,
+        threshold: int = 1,
+        inactivity_days: Optional[List[int]] = None
+    ) -> Dict:
+        """단일 월에 대한 요약 리포트를 생성"""
+
+        if inactivity_days is None:
+            inactivity_days = [30, 60, 90]
+
+        metrics = self.get_monthly_metrics(month, threshold)
+
+        previous_month = self._get_previous_month(month)
+        trends = self.get_churn_trends([previous_month, month], threshold)
+
+        segments = {
+            "gender": self._analyze_segment("gender", month, month),
+            "age_band": self._analyze_segment("age_band", month, month),
+            "channel": self._analyze_segment("channel", month, month),
+        }
+
+        inactivity = self._analyze_inactivity(month, inactivity_days)
+        reactivation = self._analyze_reactivation(month)
+        data_quality = self._check_data_quality(month, month)
+
+        analysis_payload = {
+            "start_month": previous_month,
+            "end_month": month,
+            "metrics": metrics,
+            "trends": trends,
+            "segments": segments,
+            "inactivity": inactivity,
+            "reactivation": reactivation,
+            "data_quality": data_quality,
+        }
+
+        llm_result = self._generate_llm_insights_and_actions(analysis_payload)
+
+        latest_trend = trends.get("trends", [])[-1] if trends.get("trends") else None
+
+        return {
+            "month": month,
+            "generated_at": datetime.now().isoformat(),
+            "metrics": metrics,
+            "trend": latest_trend,
+            "trends": trends,
+            "segments": segments,
+            "inactivity": inactivity,
+            "reactivation": reactivation,
+            "data_quality": data_quality,
+            "insights": llm_result.get("insights", []),
+            "actions": llm_result.get("actions", []),
+            "llm_metadata": llm_result.get("llm_metadata"),
+        }
+
     def _analyze_segment(self, segment_type: str, start_month: str, end_month: str) -> List[Dict]:
         """특정 세그먼트 분석 - 분석 기간 전체의 모든 월 전환을 집계하여 이탈률 계산"""
         

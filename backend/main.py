@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Iterable, List, Optional
 import pandas as pd
 import redis
 import json
@@ -29,6 +29,44 @@ app.add_middleware(
 # Redis 연결 (환경 변수 기반)
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_client = redis.from_url(redis_url, decode_responses=True)
+
+
+DEFAULT_CACHE_PATTERNS: List[str] = [
+    "churn_analysis:*",
+    "metrics:*",
+    "segments:*",
+    "trends:*",
+    "report:*",
+]
+
+
+def _collect_cache_keys(patterns: Iterable[str]) -> List[str]:
+    """지정된 패턴의 캐시 키를 모두 수집"""
+
+    keys: List[str] = []
+    seen = set()
+
+    for pattern in patterns:
+        for key in redis_client.scan_iter(pattern):
+            if key not in seen:
+                seen.add(key)
+                keys.append(key)
+
+    return keys
+
+
+def invalidate_cache(patterns: Optional[List[str]] = None) -> int:
+    """패턴 목록에 해당하는 캐시 키를 삭제하고 삭제된 키 수를 반환"""
+
+    if patterns is None:
+        patterns = DEFAULT_CACHE_PATTERNS
+
+    keys = _collect_cache_keys(patterns)
+
+    if keys:
+        redis_client.delete(*keys)
+
+    return len(keys)
 
 class AnalysisRequest(BaseModel):
     start_month: str  # "2025-08" (월 단위) 또는 "2025-08-01" (날짜 단위)
@@ -59,18 +97,7 @@ async def upload_events(events: List[EventCreate], db: Session = Depends(get_db)
         db.commit()
         
         # 캐시 무효화 - 모든 관련 캐시 삭제
-        cache_patterns = [
-            "churn_analysis:*",
-            "metrics:*", 
-            "segments:*",
-            "trends:*",
-            "report:*"
-        ]
-        
-        for pattern in cache_patterns:
-            keys = redis_client.keys(pattern)
-            if keys:
-                redis_client.delete(*keys)
+        invalidate_cache()
         
         return {"message": f"{len(events)}개 이벤트가 업로드되었습니다."}
     
@@ -256,17 +283,10 @@ async def get_monthly_report(month: str, db: Session = Depends(get_db)):
 async def clear_cache():
     """캐시 전체 삭제"""
     try:
-        keys = redis_client.keys("churn_analysis:*")
-        keys.extend(redis_client.keys("metrics:*"))
-        keys.extend(redis_client.keys("segments:*"))
-        keys.extend(redis_client.keys("trends:*"))
-        keys.extend(redis_client.keys("report:*"))
+        deleted_count = invalidate_cache()
         
-        if keys:
-            redis_client.delete(*keys)
-        
-        return {"message": f"{len(keys)}개 캐시 키가 삭제되었습니다."}
-        
+        return {"message": f"{deleted_count}개 캐시 키가 삭제되었습니다."}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
