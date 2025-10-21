@@ -1,0 +1,112 @@
+<svg width="1920" height="1080" xmlns="http://www.w3.org/2000/svg">
+  <!-- 배경 -->
+  <rect width="1920" height="1080" fill="#f8f9fa"/>
+  
+  <!-- 헤더 -->
+  <rect x="0" y="0" width="1920" height="120" fill="#667eea"/>
+  <text x="100" y="75" font-family="Arial" font-size="42" font-weight="bold" fill="white">
+    ⚙️ 시스템 아키텍처
+  </text>
+  
+  <!-- 제목 -->
+  <text x="960" y="220" font-family="Arial" font-size="48" font-weight="bold" fill="#333" text-anchor="middle">
+    확장 가능한 마이크로서비스 구조
+  </text>
+  
+  <!-- 프론트엔드 레이어 -->
+  <rect x="640" y="300" width="640" height="120" rx="10" fill="#3498db" stroke="#2980b9" stroke-width="3"/>
+  <text x="960" y="355" font-family="Arial" font-size="32" font-weight="bold" fill="white" text-anchor="middle">
+    프론트엔드
+  </text>
+  <text x="960" y="395" font-family="Arial" font-size="24" fill="white" text-anchor="middle">
+    HTML5 / JavaScript / Bootstrap
+  </text>
+  
+  <!-- 화살표 -->
+  <line x1="960" y1="420" x2="960" y2="480" stroke="#333" stroke-width="4"/>
+  <polygon points="960,480 950,460 970,460" fill="#333"/>
+  
+  <!-- API 레이어 -->
+  <rect x="640" y="500" width="640" height="120" rx="10" fill="#9b59b6" stroke="#8e44ad" stroke-width="3"/>
+  <text x="960" y="555" font-family="Arial" font-size="32" font-weight="bold" fill="white" text-anchor="middle">
+    API 서버
+  </text>
+  <text x="960" y="595" font-family="Arial" font-size="24" fill="white" text-anchor="middle">
+    FastAPI / Python 3.12
+  </text>
+  
+  <!-- 화살표 -->
+  <line x1="960" y1="620" x2="960" y2="680" stroke="#333" stroke-width="4"/>
+  <polygon points="960,680 950,660 970,660" fill="#333"/>
+  
+  <!-- 데이터 레이어 -->
+  <g transform="translate(200, 700)">
+    <rect x="0" y="0" width="350" height="120" rx="10" fill="#e74c3c" stroke="#c0392b" stroke-width="3"/>
+    <text x="175" y="55" font-family="Arial" font-size="28" font-weight="bold" fill="white" text-anchor="middle">
+      💾 PostgreSQL
+    </text>
+    <text x="175" y="90" font-family="Arial" font-size="20" fill="white" text-anchor="middle">
+      데이터 저장소
+    </text>
+  </g>
+  
+  <g transform="translate(600, 700)">
+    <rect x="0" y="0" width="350" height="120" rx="10" fill="#f39c12" stroke="#d68910" stroke-width="3"/>
+    <text x="175" y="55" font-family="Arial" font-size="28" font-weight="bold" fill="white" text-anchor="middle">
+      ⚡ Redis
+    </text>
+    <text x="175" y="90" font-family="Arial" font-size="20" fill="white" text-anchor="middle">
+      캐싱 레이어
+    </text>
+  </g>
+  
+  <g transform="translate(1000, 700)">
+    <rect x="0" y="0" width="350" height="120" rx="10" fill="#27ae60" stroke="#229954" stroke-width="3"/>
+    <text x="175" y="55" font-family="Arial" font-size="28" font-weight="bold" fill="white" text-anchor="middle">
+      🤖 OpenAI
+    </text>
+    <text x="175" y="90" font-family="Arial" font-size="20" fill="white" text-anchor="middle">
+      AI 분석
+    </text>
+  </g>
+  
+  <g transform="translate(1400, 700)">
+    <rect x="0" y="0" width="350" height="120" rx="10" fill="#34495e" stroke="#2c3e50" stroke-width="3"/>
+    <text x="175" y="55" font-family="Arial" font-size="28" font-weight="bold" fill="white" text-anchor="middle">
+      🐳 Docker
+    </text>
+    <text x="175" y="90" font-family="Arial" font-size="20" fill="white" text-anchor="middle">
+      컨테이너화
+    </text>
+  </g>
+  
+  <!-- 특징 -->
+  <g transform="translate(300, 900)">
+    <circle cx="20" cy="20" r="15" fill="#27ae60"/>
+    <text x="20" y="27" font-family="Arial" font-size="18" fill="white" text-anchor="middle">✓</text>
+    <text x="50" y="28" font-family="Arial" font-size="26" fill="#333">
+      RESTful API 설계
+    </text>
+  </g>
+  
+  <g transform="translate(700, 900)">
+    <circle cx="20" cy="20" r="15" fill="#27ae60"/>
+    <text x="20" y="27" font-family="Arial" font-size="18" fill="white" text-anchor="middle">✓</text>
+    <text x="50" y="28" font-family="Arial" font-size="26" fill="#333">
+      Redis 캐싱 (1시간 TTL)
+    </text>
+  </g>
+  
+  <g transform="translate(1150, 900)">
+    <circle cx="20" cy="20" r="15" fill="#27ae60"/>
+    <text x="20" y="27" font-family="Arial" font-size="18" fill="white" text-anchor="middle">✓</text>
+    <text x="50" y="28" font-family="Arial" font-size="26" fill="#333">
+      Docker Compose 배포
+    </text>
+  </g>
+  
+  <!-- 성능 지표 -->
+  <text x="960" y="1000" font-family="Arial" font-size="28" fill="#666" text-anchor="middle" font-weight="bold">
+    ⚡ 평균 응답 시간: 2.3초 | 📊 동시 처리: 100+ 요청 | 💾 데이터: 560K+ 이벤트
+  </text>
+</svg>

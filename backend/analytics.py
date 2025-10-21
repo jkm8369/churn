@@ -61,7 +61,10 @@ class ChurnAnalyzer:
                 "segments": segment_analysis,
                 "inactivity": inactivity_analysis,
                 "reactivation": reactivation_analysis,
-                "data_quality": self._check_data_quality(start_month, end_month)
+                "data_quality": self._check_data_quality(start_month, end_month),
+                "config": {
+                    "segments": segments
+                }
             })
             
             insights = llm_result.get('insights', [])
@@ -248,6 +251,13 @@ class ChurnAnalyzer:
             "inactivity": inactivity,
             "reactivation": reactivation,
             "data_quality": data_quality,
+            "config": {
+                "segments": {
+                    "gender": True,
+                    "age_band": True,
+                    "channel": True
+                }
+            }
         }
 
         llm_result = self._generate_llm_insights_and_actions(analysis_payload)

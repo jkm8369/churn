@@ -90,18 +90,6 @@
                         </div>
                     </div>
 
-                    <!-- 비활성 임계값 설정 -->
-                    <div class="card mb-3">
-                        <div class="card-header">
-                            <i class="fas fa-clock me-2"></i>비활성 임계값
-                        </div>
-                        <div class="card-body">
-                            <small class="text-muted d-block mb-2">
-                                단기: 30일 | 중기: 60일 | 장기: 90일<br>
-                                재활성 기준: 30일
-                            </small>
-                        </div>
-                    </div>
 
                     <!-- 실행 버튼 -->
                     <button class="btn btn-primary btn-lg w-100 mb-3" id="runAnalysisBtn">
@@ -136,11 +124,6 @@
                         <li class="nav-item">
                             <a class="nav-link" data-bs-toggle="tab" href="#report">
                                 <i class="fas fa-file-alt me-1"></i>리포트
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" data-bs-toggle="tab" href="#logs">
-                                <i class="fas fa-list me-1"></i>로그
                             </a>
                         </li>
                     </ul>
@@ -253,7 +236,7 @@
                         <div class="card">
                             <div class="card-header">
                                 <h5 class="card-title mb-0">
-                                    <i class="fas fa-file-alt me-2"></i>자동 생성 리포트 미리보기
+                                    <i class="fas fa-file-alt me-2"></i>AI 기반 이탈 분석 리포트
                                 </h5>
                             </div>
                             <div class="card-body">
@@ -283,55 +266,19 @@
                                     </ul>
                                 </div>
 
-                                <!-- 데이터 품질 -->
+                                <!-- 세그먼트 분석 결과 -->
                                 <div class="mb-4">
-                                    <h6 class="text-warning">
-                                        <i class="fas fa-exclamation-triangle me-2"></i>데이터 품질 및 주의사항
+                                    <h6 class="text-primary">
+                                        <i class="fas fa-chart-pie me-2"></i>세그먼트별 분석 결과
                                     </h6>
                                     <ul class="list-unstyled">
-                                        <li class="mb-1">• 총 12,345행 검증 완료 (23행 제외)</li>
-                                        <li class="mb-1">• 50대 세그먼트: 모수 부족으로 Uncertain 라벨 적용</li>
-                                        <li class="mb-1">• 분석 기간: 2025-08 ~ 2025-10 (3개월)</li>
+                                        <li class="mb-2">
+                                            <i class="fas fa-circle text-muted me-2" style="font-size: 0.5rem;"></i>
+                                            분석을 실행하면 세그먼트별 상세 결과가 표시됩니다.
+                                        </li>
                                     </ul>
                                 </div>
 
-                                <!-- 생성된 파일 -->
-                                <div>
-                                    <h6 class="text-info">
-                                        <i class="fas fa-folder me-2"></i>생성된 파일
-                                    </h6>
-                                    <div class="row">
-                                        <div class="col-md-6">
-                                            <ul class="list-unstyled">
-                                                <li><a href="#" class="text-decoration-none">• artifacts/metrics_monthly.csv</a></li>
-                                                <li><a href="#" class="text-decoration-none">• artifacts/inactivity_monthly.csv</a></li>
-                                                <li><a href="#" class="text-decoration-none">• logs/validate.log, run.log</a></li>
-                                            </ul>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <ul class="list-unstyled">
-                                                <li><a href="#" class="text-decoration-none">• dashboards/churn_trend.html</a></li>
-                                                <li><a href="#" class="text-decoration-none">• reports/summary_2025-10.md</a></li>
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 로그 탭 -->
-                    <div class="tab-pane fade" id="logs">
-                        <div class="card">
-                            <div class="card-header">
-                                <h5 class="card-title mb-0">
-                                    <i class="fas fa-list me-2"></i>실행 로그
-                                </h5>
-                            </div>
-                            <div class="card-body">
-                                <div class="bg-dark text-light p-3 rounded" style="font-family: monospace; height: 400px; overflow-y: auto;" id="logOutput">
-                                    <!-- 로그는 동적으로 추가됩니다 -->
-                                </div>
                             </div>
                         </div>
                     </div>

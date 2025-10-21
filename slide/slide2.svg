@@ -1,0 +1,106 @@
+<svg width="1920" height="1080" xmlns="http://www.w3.org/2000/svg">
+  <!-- 배경 -->
+  <rect width="1920" height="1080" fill="#f8f9fa"/>
+  
+  <!-- 헤더 -->
+  <rect x="0" y="0" width="1920" height="120" fill="#667eea"/>
+  <text x="100" y="75" font-family="Arial" font-size="42" font-weight="bold" fill="white">
+    📊 이탈자 분석 대시보드
+  </text>
+  <text x="1720" y="75" font-family="Arial" font-size="28" fill="white" text-anchor="end">
+    2025-10-21
+  </text>
+  
+  <!-- 메인 콘텐츠 영역 제목 -->
+  <text x="960" y="200" font-family="Arial" font-size="48" font-weight="bold" fill="#333" text-anchor="middle">
+    실시간 이탈 지표 모니터링
+  </text>
+  
+  <!-- 지표 카드 1: 이탈률 (위험) -->
+  <g transform="translate(200, 280)">
+    <rect width="340" height="240" rx="15" fill="white" stroke="#e74c3c" stroke-width="3"/>
+    <rect x="0" y="0" width="340" height="60" rx="15" fill="#e74c3c"/>
+    <text x="170" y="42" font-family="Arial" font-size="24" font-weight="bold" fill="white" text-anchor="middle">
+      전체 이탈률
+    </text>
+    <text x="170" y="150" font-family="Arial" font-size="72" font-weight="bold" fill="#e74c3c" text-anchor="middle">
+      40.5%
+    </text>
+    <text x="170" y="200" font-family="Arial" font-size="20" fill="#666" text-anchor="middle">
+      전월 대비 +5.2%p
+    </text>
+  </g>
+  
+  <!-- 지표 카드 2: 활성 사용자 -->
+  <g transform="translate(590, 280)">
+    <rect width="340" height="240" rx="15" fill="white" stroke="#3498db" stroke-width="3"/>
+    <rect x="0" y="0" width="340" height="60" rx="15" fill="#3498db"/>
+    <text x="170" y="42" font-family="Arial" font-size="24" font-weight="bold" fill="white" text-anchor="middle">
+      활성 사용자
+    </text>
+    <text x="170" y="150" font-family="Arial" font-size="72" font-weight="bold" fill="#3498db" text-anchor="middle">
+      89
+    </text>
+    <text x="170" y="200" font-family="Arial" font-size="20" fill="#666" text-anchor="middle">
+      이번 달 활동
+    </text>
+  </g>
+  
+  <!-- 지표 카드 3: 재활성 사용자 -->
+  <g transform="translate(980, 280)">
+    <rect width="340" height="240" rx="15" fill="white" stroke="#27ae60" stroke-width="3"/>
+    <rect x="0" y="0" width="340" height="60" rx="15" fill="#27ae60"/>
+    <text x="170" y="42" font-family="Arial" font-size="24" font-weight="bold" fill="white" text-anchor="middle">
+      재활성 사용자
+    </text>
+    <text x="170" y="150" font-family="Arial" font-size="72" font-weight="bold" fill="#27ae60" text-anchor="middle">
+      12
+    </text>
+    <text x="170" y="200" font-family="Arial" font-size="20" fill="#666" text-anchor="middle">
+      30일+ 복귀
+    </text>
+  </g>
+  
+  <!-- 지표 카드 4: 장기 미접속 -->
+  <g transform="translate(1370, 280)">
+    <rect width="340" height="240" rx="15" fill="white" stroke="#f39c12" stroke-width="3"/>
+    <rect x="0" y="0" width="340" height="60" rx="15" fill="#f39c12"/>
+    <text x="170" y="42" font-family="Arial" font-size="24" font-weight="bold" fill="white" text-anchor="middle">
+      장기 미접속
+    </text>
+    <text x="170" y="150" font-family="Arial" font-size="72" font-weight="bold" fill="#f39c12" text-anchor="middle">
+      34
+    </text>
+    <text x="170" y="200" font-family="Arial" font-size="20" fill="#666" text-anchor="middle">
+      90일 이상
+    </text>
+  </g>
+  
+  <!-- 세그먼트 분석 영역 -->
+  <rect x="200" y="580" width="1510" height="380" rx="15" fill="white" stroke="#ddd" stroke-width="2"/>
+  <text x="220" y="630" font-family="Arial" font-size="32" font-weight="bold" fill="#333">
+    📊 세그먼트별 이탈률 분석
+  </text>
+  
+  <!-- 막대 그래프 (간단한 표현) -->
+  <!-- 여성 -->
+  <rect x="250" y="700" width="400" height="50" rx="5" fill="#e74c3c" opacity="0.8"/>
+  <text x="260" y="732" font-family="Arial" font-size="24" fill="white" font-weight="bold">여성 45.3%</text>
+  
+  <!-- 남성 -->
+  <rect x="250" y="780" width="300" height="50" rx="5" fill="#3498db" opacity="0.8"/>
+  <text x="260" y="812" font-family="Arial" font-size="24" fill="white" font-weight="bold">남성 35.1%</text>
+  
+  <!-- 앱 -->
+  <rect x="900" y="700" width="350" height="50" rx="5" fill="#9b59b6" opacity="0.8"/>
+  <text x="910" y="732" font-family="Arial" font-size="24" fill="white" font-weight="bold">앱 43.2%</text>
+  
+  <!-- 웹 -->
+  <rect x="900" y="780" width="320" height="50" rx="5" fill="#1abc9c" opacity="0.8"/>
+  <text x="910" y="812" font-family="Arial" font-size="24" fill="white" font-weight="bold">웹 38.7%</text>
+  
+  <!-- 하단 설명 -->
+  <text x="960" y="1020" font-family="Arial" font-size="24" fill="#666" text-anchor="middle">
+    ⚡ 실시간 데이터 기반 동적 분석 | 🔄 1시간 캐싱
+  </text>
+</svg>

@@ -63,6 +63,7 @@ function setupEventListeners() {
     safeAddEventListener('genderSegment', 'change', updateSegmentOptions);
     safeAddEventListener('ageSegment', 'change', updateSegmentOptions);
     safeAddEventListener('channelSegment', 'change', updateSegmentOptions);
+
 }
 
 // 차트 초기화 (제거됨)
@@ -440,11 +441,6 @@ function completeAnalysis() {
     updateAnalysisStatus('completed');
     
     addLog('분석이 성공적으로 완료되었습니다!', 'success');
-    addLog('생성된 파일:', 'info');
-    addLog('• artifacts/metrics_monthly.csv', 'muted');
-    addLog('• artifacts/inactivity_monthly.csv', 'muted');
-    addLog('• dashboards/churn_trend.html', 'muted');
-    addLog('• reports/summary_2025-10.md', 'muted');
     
     showAlert('분석이 완료되었습니다! 리포트 탭에서 결과를 확인하세요.', 'success');
     
@@ -470,8 +466,23 @@ async function updateMetricCards() {
         const config = getCurrentConfig();
         console.log('[DEBUG] updateMetricCards - 현재 설정:', config);
         
-        const metrics = await callBackendAPI(config);
-        console.log('[DEBUG] updateMetricCards - 백엔드 응답:', metrics);
+        const backendResponse = await callBackendAPI(config);
+        console.log('[DEBUG] updateMetricCards - 백엔드 응답:', backendResponse);
+        
+        // 백엔드 응답에서 메트릭과 세그먼트 데이터 분리
+        const metrics = {
+            churn_rate: backendResponse.churn_rate,
+            active_users: backendResponse.active_users,
+            reactivated_users: backendResponse.reactivated_users,
+            long_term_inactive: backendResponse.long_term_inactive,
+            previous_active_users: backendResponse.previous_active_users
+        };
+        
+        // 세그먼트 분석 결과를 전역 변수에 저장 (인사이트 생성 시 사용)
+        if (backendResponse.segments) {
+            window.currentSegmentAnalysis = backendResponse.segments;
+            console.log('[DEBUG] 세그먼트 분석 결과 저장:', window.currentSegmentAnalysis);
+        }
         
         // 백엔드 응답이 모두 0이거나 오류인 경우 프론트엔드 계산 사용
         const isBackendDataEmpty = metrics.error || 
@@ -541,6 +552,8 @@ async function callBackendAPI(config) {
     // 날짜를 월 형식으로 변환 (백엔드는 아직 월 단위)
     const startMonth = config.startDate ? config.startDate.substring(0, 7) : '2025-08';
     const endMonth = config.endDate ? config.endDate.substring(0, 7) : '2025-10';
+
+    const inactivityThresholds = [30, 60, 90];
     
     const requestData = {
         start_month: startMonth,
@@ -550,7 +563,7 @@ async function callBackendAPI(config) {
             age_band: config.segments?.ageBand ?? false,
             channel: config.segments?.channel ?? false
         },
-        inactivity_days: [30, 60, 90],
+        inactivity_days: inactivityThresholds,
         threshold: 1  // 최소 이벤트 수
     };
     
@@ -579,6 +592,7 @@ function updateStatusCards() {
     
     // 기간 상태 업데이트
     updatePeriodStatus();
+
     
     // 분석 상태 업데이트
     updateAnalysisStatus();
@@ -639,6 +653,10 @@ function updateDataStatusForUploading(file) {
         if (icon) icon.className = 'fas fa-spinner fa-spin fa-2x text-info mb-2';
     }
 }
+
+
+
+
 
 // 기간 상태 업데이트
 function updatePeriodStatus() {
@@ -884,17 +902,28 @@ function updateProgressBar(progress, message) {
     }
 }
 
-// 로그 추가
+// 로그 추가 (개발자도구 콘솔로 출력)
 function addLog(message, type = 'info') {
-    const logOutput = document.getElementById('logOutput');
     const timestamp = getCurrentTime();
-    const logEntry = document.createElement('div');
+    const logMessage = `[${timestamp}] ${message}`;
     
-    logEntry.className = `text-${type}`;
-    logEntry.textContent = `[${timestamp}] ${message}`;
-    
-    logOutput.appendChild(logEntry);
-    logOutput.scrollTop = logOutput.scrollHeight;
+    // 개발자도구 콘솔에 출력
+    switch(type) {
+        case 'error':
+        case 'danger':
+            console.error(logMessage);
+            break;
+        case 'warning':
+            console.warn(logMessage);
+            break;
+        case 'success':
+            console.log(`✅ ${logMessage}`);
+            break;
+        case 'info':
+        default:
+            console.log(`ℹ️ ${logMessage}`);
+            break;
+    }
 }
 
 // 현재 시간 가져오기
@@ -1020,11 +1049,15 @@ window.addEventListener('resize', function() {
 function calculateMetrics(data, config = {}) {
     const startDate = config.startDate || '2025-08-01';
     const endDate = config.endDate || '2025-10-31';
+
+    const inactivityThreshold = 90;
+    const endMonth = endDate.substring(0, 7);
     
     console.log(`[DEBUG] calculateMetrics 호출됨 - 기간: ${startDate} ~ ${endDate}`);
     console.log(`[DEBUG] 설정:`, config);
     console.log(`[DEBUG] 세그먼트 설정:`, config.segments);
     console.log(`[DEBUG] 데이터 행 수: ${data.length}`);
+    console.log(`[DEBUG] 비활성 임계값: ${inactivityThreshold}일`);
     
     // 날짜 범위 내 데이터 필터링
     const filteredData = data.filter(row => {
@@ -1072,13 +1105,8 @@ function calculateMetrics(data, config = {}) {
     // 재활성 사용자 계산 (후반기에만 있는 사용자)
     const reactivatedUsers = [...secondHalfUsers].filter(user => !firstHalfUsers.has(user)).length;
     
-    // 장기 미접속 사용자 (전체 기간에서 활동이 적은 사용자)
-    const userActivityCount = {};
-    filteredData.forEach(row => {
-        userActivityCount[row.user_hash] = (userActivityCount[row.user_hash] || 0) + 1;
-    });
-    
-    const longTermInactive = Object.values(userActivityCount).filter(count => count <= 1).length;
+    // 장기 미접속 사용자 (설정된 임계값 기준)
+    const longTermInactive = calculateLongTermInactive(data, endMonth, inactivityThreshold);
     
     const result = {
         churnRate: Math.round(churnRate * 10) / 10,
@@ -1164,7 +1192,7 @@ function calculateSegmentChurnRates(data, config = {}) {
     
     const segments = {
         'M': '남성', 'F': '여성',
-        '20s': '20대', '30s': '30대', '40s': '40대', '50s': '50대',
+        '10s': '10대', '20s': '20대', '30s': '30대', '40s': '40대', '50s': '50대', '60s': '60대',
         'web': '웹', 'app': '앱'
     };
     
@@ -1202,12 +1230,18 @@ function calculateSegmentChurnRates(data, config = {}) {
     
     // 연령대 분석 (체크박스가 체크된 경우만) - 전체 기간 집계
     if (config.segments?.ageBand) {
-        ['20s', '30s', '40s', '50s'].forEach(age => {
+        const availableAgeBands = ['10s', '20s', '30s', '40s', '50s', '60s'];
+        const sortedAgeBands = sortAgeBands(availableAgeBands);
+        
+        const ageColors = ['#17a2b8', '#28a745', '#ffc107', '#fd7e14', '#dc3545', '#6f42c1'];
+        
+        sortedAgeBands.forEach(age => {
             const rate = calculateSegmentChurnRateFullRange(data, 'age_band', age, months);
             if (rate !== null) {
                 labels.push(segments[age]);
                 rates.push(rate);
-                colors.push(['#28a745', '#ffc107', '#fd7e14', '#dc3545'][['20s', '30s', '40s', '50s'].indexOf(age)]);
+                const colorIndex = sortedAgeBands.indexOf(age);
+                colors.push(ageColors[colorIndex % ageColors.length]);
                 console.log(`[DEBUG] ${segments[age]} 이탈률 (전체 기간): ${rate}%`);
             }
         });
@@ -1341,25 +1375,36 @@ function calculateReactivatedUsers(data, currentMonth) {
 }
 
 // 장기 미접속 사용자 계산 (90일 이상)
-function calculateLongTermInactive(data, currentMonth) {
+function calculateLongTermInactive(data, currentMonth, inactivityDays = 90) {
+    const thresholdDays = 90;
+
     const currentDate = new Date(currentMonth + '-01');
-    const ninetyDaysAgo = new Date(currentDate.getTime() - 90 * 24 * 60 * 60 * 1000);
-    
+
+    if (Number.isNaN(currentDate.getTime())) {
+        return 0;
+    }
+
+    const cutoffDate = new Date(currentDate.getTime() - thresholdDays * 24 * 60 * 60 * 1000);    
+
     // 모든 사용자의 마지막 활동일 계산
     const userLastActivity = {};
     data.forEach(row => {
-        const userId = row.user_hash;
+        if (!row || !row.user_hash || !row.created_at) return;
+
         const activityDate = new Date(row.created_at);
-        
+
+        if (Number.isNaN(activityDate.getTime()) || activityDate > currentDate) return;
+
+        const userId = row.user_hash;
         if (!userLastActivity[userId] || activityDate > userLastActivity[userId]) {
             userLastActivity[userId] = activityDate;
         }
     });
     
-    // 90일 이상 미접속 사용자 카운트
+    // 임계값 이상 미접속 사용자 카운트
     let longTermInactiveCount = 0;
     Object.values(userLastActivity).forEach(lastActivity => {
-        if (lastActivity < ninetyDaysAgo) {
+        if (lastActivity < cutoffDate) {
             longTermInactiveCount++;
         }
     });
@@ -1394,6 +1439,27 @@ function generateMonthRange(startMonth, endMonth) {
     }
     
     return months;
+}
+
+// 연령대 정렬 함수
+function sortAgeBands(ageBands) {
+    const ageOrder = ['10s', '20s', '30s', '40s', '50s', '60s'];
+    return ageBands.sort((a, b) => {
+        const aIndex = ageOrder.indexOf(a);
+        const bIndex = ageOrder.indexOf(b);
+        if (aIndex === -1 && bIndex === -1) return a.localeCompare(b);
+        if (aIndex === -1) return 1;
+        if (bIndex === -1) return -1;
+        return aIndex - bIndex;
+    });
+}
+
+// 연령대 표시 형식 변환 (10s → 10대)
+function formatAgeBand(ageBand) {
+    if (ageBand && ageBand.endsWith('s')) {
+        return ageBand.replace('s', '대');
+    }
+    return ageBand;
 }
 
 // 이전 월 계산
@@ -1444,29 +1510,135 @@ function filterSegmentsByConfig(chartData, segmentConfig) {
 // 세그먼트 분석 (완전 동적)
 function calculateSegmentAnalysis(data, config) {
     const segments = {};
-    const currentMonth = config.endMonth || '2025-10';
-    const previousMonth = getPreviousMonth(currentMonth);
+    
+    // 날짜 범위에서 월 추출
+    const startDate = config.startDate || '2025-08-01';
+    const endDate = config.endDate || '2025-10-31';
+    const startMonth = startDate.substring(0, 7);
+    const endMonth = endDate.substring(0, 7);
+    
+    console.log(`[DEBUG] calculateSegmentAnalysis - 기간: ${startMonth} ~ ${endMonth}`);
+    
+    // 날짜 범위 내 데이터 필터링
+    const filteredData = data.filter(row => {
+        if (!row.created_at) return false;
+        const rowDate = new Date(row.created_at).toISOString().split('T')[0];
+        return rowDate >= startDate && rowDate <= endDate;
+    });
+    
+    console.log(`[DEBUG] 세그먼트 분석용 필터링된 데이터: ${filteredData.length}행`);
     
     // 성별 분석
     if (config.segments.gender) {
-        segments.gender = analyzeSegmentByType(data, 'gender', ['M', 'F'], currentMonth, previousMonth);
+        segments.gender = analyzeSegmentByTypeFullRange(filteredData, 'gender', ['M', 'F'], startMonth, endMonth);
     }
     
     // 연령대 분석
     if (config.segments.ageBand) {
-        const ageBands = [...new Set(data.map(row => row.age_band).filter(age => age && age !== 'Unknown'))];
-        segments.age_band = analyzeSegmentByType(data, 'age_band', ageBands, currentMonth, previousMonth);
+        const ageBands = [...new Set(filteredData.map(row => row.age_band).filter(age => age && age !== 'Unknown'))];
+        const sortedAgeBands = sortAgeBands(ageBands);
+        segments.age_band = analyzeSegmentByTypeFullRange(filteredData, 'age_band', sortedAgeBands, startMonth, endMonth);
     }
     
     // 채널 분석
     if (config.segments.channel) {
-        segments.channel = analyzeSegmentByType(data, 'channel', ['web', 'app'], currentMonth, previousMonth);
+        segments.channel = analyzeSegmentByTypeFullRange(filteredData, 'channel', ['web', 'app'], startMonth, endMonth);
     }
     
     return segments;
 }
 
-// 특정 타입의 세그먼트 분석
+// 특정 타입의 세그먼트 분석 (전체 기간 집계)
+function analyzeSegmentByTypeFullRange(data, segmentType, segmentValues, startMonth, endMonth) {
+    const results = [];
+    
+    // 분석할 월 범위 생성
+    const months = generateMonthRange(startMonth, endMonth);
+    if (months.length < 2) {
+        console.log(`[DEBUG] ${segmentType} 분석: 충분한 월 데이터가 없음`);
+        return [];
+    }
+    
+    console.log(`[DEBUG] ${segmentType} 분석 기간:`, months);
+    
+    segmentValues.forEach(segmentValue => {
+        // 해당 세그먼트의 데이터만 필터링
+        const segmentData = data.filter(row => row[segmentType] === segmentValue);
+        
+        if (segmentData.length === 0) return;
+        
+        // 월별 활성 사용자 계산
+        const activeUsersByMonth = {};
+        segmentData.forEach(row => {
+            if (!activeUsersByMonth[row.year_month]) {
+                activeUsersByMonth[row.year_month] = new Set();
+            }
+            activeUsersByMonth[row.year_month].add(row.user_hash);
+        });
+        
+        let totalPreviousActive = 0;
+        let totalChurned = 0;
+        let totalCurrentActive = 0;
+        
+        // 모든 월 전환에 대해 집계
+        for (let i = 1; i < months.length; i++) {
+            const previousMonth = months[i - 1];
+            const currentMonth = months[i];
+            
+            const currentSet = activeUsersByMonth[currentMonth] || new Set();
+            const previousSet = activeUsersByMonth[previousMonth] || new Set();
+            
+            if (previousSet.size > 0) {
+                totalPreviousActive += previousSet.size;
+                const churnedUsers = [...previousSet].filter(user => !currentSet.has(user));
+                totalChurned += churnedUsers.length;
+                
+                console.log(`[DEBUG] ${segmentType}=${segmentValue}: ${previousMonth}->${currentMonth} 이전:${previousSet.size}명, 이탈:${churnedUsers.length}명`);
+            }
+            
+            // 마지막 월의 현재 활성 사용자 수
+            if (i === months.length - 1) {
+                totalCurrentActive = currentSet.size;
+            }
+        }
+        
+        if (totalPreviousActive === 0) {
+            console.log(`[DEBUG] ${segmentType}=${segmentValue}: 전체 기간 이전 월 데이터 없음`);
+            return;
+        }
+        
+        const churnRate = (totalChurned / totalPreviousActive) * 100;
+        const isUncertain = totalPreviousActive < 30;
+        
+        console.log(`[DEBUG] ${segmentType}=${segmentValue}: 전체 기간 이전활성:${totalPreviousActive}명, 총이탈:${totalChurned}명, 이탈률:${churnRate}%`);
+        
+        results.push({
+            segment_value: segmentValue,
+            current_active: totalCurrentActive,
+            previous_active: totalPreviousActive,
+            churned_users: totalChurned,
+            churn_rate: Math.round(churnRate * 10) / 10,
+            is_uncertain: isUncertain
+        });
+    });
+    
+    // 연령대의 경우 연령 순서로 정렬, 다른 세그먼트는 이탈률 높은 순으로 정렬
+    if (segmentType === 'age_band') {
+        return results.sort((a, b) => {
+            const ageOrder = ['10s', '20s', '30s', '40s', '50s', '60s'];
+            const aIndex = ageOrder.indexOf(a.segment_value);
+            const bIndex = ageOrder.indexOf(b.segment_value);
+            if (aIndex === -1 && bIndex === -1) return a.segment_value.localeCompare(b.segment_value);
+            if (aIndex === -1) return 1;
+            if (bIndex === -1) return -1;
+            return aIndex - bIndex;
+        });
+    } else {
+        return results.sort((a, b) => b.churn_rate - a.churn_rate);
+    }
+}
+
+// 특정 타입의 세그먼트 분석 (단일 월 비교 - 기존 함수 유지)
 function analyzeSegmentByType(data, segmentType, segmentValues, currentMonth, previousMonth) {
     const results = [];
     
@@ -1553,6 +1725,7 @@ function calculateDataQuality(data) {
 // 동적 인사이트 생성
 // [DEPRECATED] 기존 하드코딩된 인사이트 생성 - LLM으로 대체됨
 function generateDynamicInsights(metrics, segmentAnalysis, chartData) {
+    const inactivityThreshold = getInactiveThresholdValue();
     const insights = [];
     
     // 1. 전체 이탈률 트렌드 인사이트
@@ -1595,10 +1768,10 @@ function generateDynamicInsights(metrics, segmentAnalysis, chartData) {
     }
     
     // 4. 장기 미접속 인사이트
-    if (metrics.longTermInactive > 0 && metrics.activeUsers > 0) {
-        const inactiveRatio = (metrics.longTermInactive / (metrics.activeUsers + metrics.longTermInactive)) * 100;
+    if ((metrics.longTermInactive || 0) > 0 && (metrics.activeUsers || 0) > 0) {
+        const inactiveRatio = (metrics.longTermInactive / ((metrics.activeUsers || 0) + metrics.longTermInactive)) * 100;
         if (inactiveRatio > 10) {
-            insights.push(`90일+ 장기 미접속 사용자가 전체의 ${inactiveRatio.toFixed(1)}%로 높은 수준입니다.`);
+            insights.push(`⏳ ${inactivityThreshold}일 이상 미접속 사용자가 전체의 ${inactiveRatio.toFixed(1)}%입니다. 복귀 전략을 검토하세요.`);
         }
     }
     
@@ -1666,40 +1839,52 @@ async function updateReportWithDynamicData() {
     
     const config = getCurrentConfig();
     
-    // 실제 계산된 메트릭 사용 (백엔드 또는 프론트엔드)
+    // 실제 계산된 메트릭과 세그먼트 데이터 사용 (백엔드 또는 프론트엔드)
     let finalMetrics;
+    let segmentAnalysis;
     try {
-        // 먼저 백엔드 API에서 메트릭 가져오기 시도
-        const backendMetrics = await callBackendAPI(config);
-        const isBackendDataEmpty = backendMetrics.error || 
-            (backendMetrics.churn_rate === 0 && backendMetrics.active_users === 0 && 
-             backendMetrics.reactivated_users === 0 && backendMetrics.long_term_inactive === 0);
+        // 먼저 백엔드 API에서 메트릭과 세그먼트 데이터 가져오기 시도
+        const backendResponse = await callBackendAPI(config);
+        const isBackendDataEmpty = backendResponse.error || 
+            (backendResponse.churn_rate === 0 && backendResponse.active_users === 0 && 
+             backendResponse.reactivated_users === 0 && backendResponse.long_term_inactive === 0);
         
         if (isBackendDataEmpty) {
             // 백엔드 실패 시 프론트엔드 계산 사용
             finalMetrics = calculateMetrics(window.csvData, config);
+            segmentAnalysis = calculateSegmentAnalysis(window.csvData, config);
             addLog('리포트: 로컬 계산된 메트릭 사용', 'info');
         } else {
-            // 백엔드 성공 시 백엔드 메트릭 사용 (형식 통일)
+            // 백엔드 성공 시 백엔드 메트릭과 세그먼트 데이터 사용
             finalMetrics = {
-                churnRate: backendMetrics.churn_rate,
-                activeUsers: backendMetrics.active_users,
-                reactivatedUsers: backendMetrics.reactivated_users,
-                longTermInactive: backendMetrics.long_term_inactive,
-                previousActiveUsers: backendMetrics.previous_active_users || 0
+                churnRate: backendResponse.churn_rate,
+                activeUsers: backendResponse.active_users,
+                reactivatedUsers: backendResponse.reactivated_users,
+                longTermInactive: backendResponse.long_term_inactive,
+                previousActiveUsers: backendResponse.previous_active_users || 0
             };
+            
+            // 백엔드에서 세그먼트 분석 결과가 있으면 사용, 없으면 프론트엔드 계산
+            if (backendResponse.segments) {
+                segmentAnalysis = backendResponse.segments;
+                addLog('리포트: 백엔드 세그먼트 분석 결과 사용', 'success');
+            } else {
+                segmentAnalysis = calculateSegmentAnalysis(window.csvData, config);
+                addLog('리포트: 백엔드 메트릭 + 로컬 세그먼트 분석 사용', 'info');
+            }
             addLog('리포트: 백엔드 계산된 메트릭 사용', 'success');
         }
     } catch (error) {
         // API 호출 실패 시 프론트엔드 계산 사용
         finalMetrics = calculateMetrics(window.csvData, config);
+        segmentAnalysis = calculateSegmentAnalysis(window.csvData, config);
         addLog('리포트: API 실패로 로컬 메트릭 사용', 'warning');
     }
     
     console.log('[DEBUG] 리포트용 최종 메트릭:', finalMetrics);
+    console.log('[DEBUG] 리포트용 세그먼트 분석:', segmentAnalysis);
     
     const chartData = calculateChartData(window.csvData, config);
-    const segmentAnalysis = calculateSegmentAnalysis(window.csvData, config);
     const dataQuality = calculateDataQuality(window.csvData);
     
     // 백엔드 API 호출하여 LLM 기반 인사이트 생성 (실제 메트릭 포함)
@@ -1739,7 +1924,8 @@ async function updateReportWithDynamicData() {
                 result.insights || [],
                 result.actions || [],
                 dataQuality,
-                result.llm_metadata
+                result.llm_metadata,
+                segmentAnalysis
             );
         } else {
             throw new Error(`API 호출 실패: ${response.status}`);
@@ -1748,8 +1934,8 @@ async function updateReportWithDynamicData() {
     } catch (error) {
         addLog(`❌ AI 인사이트 생성 실패: ${error.message}`, 'error');
         
-        // AI 실패 시 기본 분석 기반 인사이트 생성
-        const basicInsights = generateBasicInsights(finalMetrics, segmentAnalysis, chartData);
+        // AI 실패 시 기본 분석 기반 인사이트 생성 (세그먼트 분석 결과 활용)
+        const basicInsights = generateBasicInsights(finalMetrics, segmentAnalysis, chartData, config);
         const basicActions = generateBasicActions(finalMetrics, segmentAnalysis);
         
         const fallbackMetadata = {
@@ -1760,14 +1946,15 @@ async function updateReportWithDynamicData() {
             timestamp: new Date().toISOString()
         };
         
-        updateReportSection(basicInsights, basicActions, dataQuality, fallbackMetadata);
+        updateReportSection(basicInsights, basicActions, dataQuality, fallbackMetadata, segmentAnalysis);
     }
     
     addLog('리포트 업데이트 완료', 'success');
 }
 
 // 기본 인사이트 생성 (AI 실패 시 사용)
-function generateBasicInsights(metrics, segmentAnalysis, chartData) {
+function generateBasicInsights(metrics, segmentAnalysis, chartData, config = {}) {
+    const inactivityThreshold = 90;
     const insights = [];
     
     // 1. 전체 이탈률 인사이트
@@ -1798,6 +1985,8 @@ function generateBasicInsights(metrics, segmentAnalysis, chartData) {
     
     // 3. 세그먼트 인사이트 (선택된 세그먼트가 있는 경우)
     if (segmentAnalysis && Object.keys(segmentAnalysis).length > 0) {
+        console.log('[DEBUG] 세그먼트 분석 결과:', segmentAnalysis);
+        
         // 성별 분석
         if (segmentAnalysis.gender && segmentAnalysis.gender.length >= 2) {
             const genderData = segmentAnalysis.gender;
@@ -1811,7 +2000,8 @@ function generateBasicInsights(metrics, segmentAnalysis, chartData) {
             if (Math.abs(highest.churn_rate - lowest.churn_rate) > 3) {
                 const highName = highest.segment_value === 'M' ? '남성' : '여성';
                 const lowName = lowest.segment_value === 'M' ? '남성' : '여성';
-                insights.push(`👥 ${highName} 사용자의 이탈률(${highest.churn_rate.toFixed(1)}%)이 ${lowName}(${lowest.churn_rate.toFixed(1)}%) 대비 높습니다.`);
+                const uncertainNote = highest.is_uncertain ? ' (모수 부족)' : '';
+                insights.push(`👥 ${highName} 사용자의 이탈률(${highest.churn_rate.toFixed(1)}%)이 ${lowName}(${lowest.churn_rate.toFixed(1)}%) 대비 높습니다${uncertainNote}.`);
             }
         }
         
@@ -1823,7 +2013,27 @@ function generateBasicInsights(metrics, segmentAnalysis, chartData) {
             );
             
             if (highestAge.churn_rate > 20) {
-                insights.push(`🎯 ${highestAge.segment_value} 연령대에서 높은 이탈률(${highestAge.churn_rate.toFixed(1)}%)을 보입니다.`);
+                const uncertainNote = highestAge.is_uncertain ? ' (모수 부족으로 Uncertain 표기)' : '';
+                insights.push(`🎯 ${highestAge.segment_value} 연령대에서 높은 이탈률(${highestAge.churn_rate.toFixed(1)}%)을 보입니다${uncertainNote}.`);
+            }
+        }
+        
+        // 채널 분석
+        if (segmentAnalysis.channel && segmentAnalysis.channel.length >= 2) {
+            const channelData = segmentAnalysis.channel;
+            const highest = channelData.reduce((prev, current) => 
+                (prev.churn_rate > current.churn_rate) ? prev : current
+            );
+            const lowest = channelData.reduce((prev, current) => 
+                (prev.churn_rate < current.churn_rate) ? prev : current
+            );
+            
+            if (Math.abs(highest.churn_rate - lowest.churn_rate) > 5) {
+                const highName = highest.segment_value === 'app' ? '모바일 앱' : 
+                               highest.segment_value === 'web' ? '웹' : highest.segment_value;
+                const lowName = lowest.segment_value === 'app' ? '모바일 앱' : 
+                               lowest.segment_value === 'web' ? '웹' : lowest.segment_value;
+                insights.push(`📱 ${highName} 채널의 이탈률(${highest.churn_rate.toFixed(1)}%)이 ${lowName}(${lowest.churn_rate.toFixed(1)}%) 대비 높습니다.`);
             }
         }
     }
@@ -1896,7 +2106,7 @@ function generateBasicActions(metrics, segmentAnalysis) {
 }
 
 // 리포트 섹션 업데이트 (기존 함수 개선)
-function updateReportSection(insights, actions, dataQuality, llmMetadata = null) {
+function updateReportSection(insights, actions, dataQuality, llmMetadata = null, segmentAnalysis = null) {
     // 인사이트 업데이트
     const insightsContainer = document.querySelector('#report .mb-4:first-child ul');
     if (insightsContainer && insights && insights.length > 0) {
@@ -1925,9 +2135,52 @@ function updateReportSection(insights, actions, dataQuality, llmMetadata = null)
         actionsContainer.innerHTML = '<li class="mb-2"><i class="fas fa-arrow-right text-muted me-2"></i>권장 액션을 생성할 수 없습니다.</li>';
     }
 
+    // 세그먼트 분석 결과 업데이트
+    if (segmentAnalysis && Object.keys(segmentAnalysis).length > 0) {
+        const segmentContainer = document.querySelector('#report .mb-4:nth-child(3) ul');
+        if (segmentContainer) {
+            let segmentHtml = '';
+            
+            // 성별 분석 결과
+            if (segmentAnalysis.gender && segmentAnalysis.gender.length > 0) {
+                segmentHtml += '<li class="mb-2"><strong>성별 이탈률:</strong></li>';
+                segmentAnalysis.gender.forEach(segment => {
+                    const genderName = segment.segment_value === 'M' ? '남성' : '여성';
+                    const uncertainNote = segment.is_uncertain ? ' (Uncertain)' : '';
+                    segmentHtml += `<li class="mb-1 ms-3">• ${genderName}: ${segment.churn_rate.toFixed(1)}% (활성: ${segment.current_active}명)${uncertainNote}</li>`;
+                });
+            }
+            
+            // 연령대 분석 결과
+            if (segmentAnalysis.age_band && segmentAnalysis.age_band.length > 0) {
+                segmentHtml += '<li class="mb-2"><strong>연령대별 이탈률:</strong></li>';
+                segmentAnalysis.age_band.forEach(segment => {
+                    const uncertainNote = segment.is_uncertain ? ' (Uncertain)' : '';
+                    const formattedAge = formatAgeBand(segment.segment_value);
+                    segmentHtml += `<li class="mb-1 ms-3">• ${formattedAge}: ${segment.churn_rate.toFixed(1)}% (활성: ${segment.current_active}명)${uncertainNote}</li>`;
+                });
+            }
+            
+            // 채널 분석 결과
+            if (segmentAnalysis.channel && segmentAnalysis.channel.length > 0) {
+                segmentHtml += '<li class="mb-2"><strong>채널별 이탈률:</strong></li>';
+                segmentAnalysis.channel.forEach(segment => {
+                    const channelName = segment.segment_value === 'app' ? '모바일 앱' : 
+                                      segment.segment_value === 'web' ? '웹' : segment.segment_value;
+                    const uncertainNote = segment.is_uncertain ? ' (Uncertain)' : '';
+                    segmentHtml += `<li class="mb-1 ms-3">• ${channelName}: ${segment.churn_rate.toFixed(1)}% (활성: ${segment.current_active}명)${uncertainNote}</li>`;
+                });
+            }
+            
+            if (segmentHtml) {
+                segmentContainer.innerHTML = segmentHtml;
+            }
+        }
+    }
+
     // 데이터 품질 업데이트
     if (dataQuality) {
-        const qualityContainer = document.querySelector('#report .mb-4:nth-child(3) ul');
+        const qualityContainer = document.querySelector('#report .mb-4:nth-child(4) ul');
         if (qualityContainer) {
             qualityContainer.innerHTML = `
                 <li class="mb-1">• 총 ${dataQuality.total_events.toLocaleString()}행 검증 완료 (${dataQuality.invalid_events}행 제외)</li>
@@ -1937,135 +2190,7 @@ function updateReportSection(insights, actions, dataQuality, llmMetadata = null)
             `;
         }
         
-        // 생성된 파일 정보도 동적으로 업데이트
-        const filesContainer = document.querySelector('#report .mb-4:last-child .row');
-        if (filesContainer) {
-            const currentDate = new Date().toISOString().substring(0, 7);
-            filesContainer.innerHTML = `
-                <div class="col-md-6">
-                    <ul class="list-unstyled">
-                        <li><a href="#" class="text-decoration-none">• artifacts/metrics_${currentDate}.csv</a></li>
-                        <li><a href="#" class="text-decoration-none">• artifacts/inactivity_${currentDate}.csv</a></li>
-                        <li><a href="#" class="text-decoration-none">• logs/validate_${getCurrentTime().replace(/:/g, '')}.log</a></li>
-                    </ul>
-                </div>
-                <div class="col-md-6">
-                    <ul class="list-unstyled">
-                        <li><a href="#" class="text-decoration-none">• dashboards/churn_trend_${currentDate}.html</a></li>
-                        <li><a href="#" class="text-decoration-none">• reports/summary_${currentDate}.md</a></li>
-                    </ul>
-                </div>
-            `;
-        }
     }
     
-    // LLM 메타데이터 표시 (있는 경우)
-    if (llmMetadata) {
-        updateLLMMetadataSection(llmMetadata);
-    }
 }
 
-// LLM 메타데이터 섹션 업데이트
-function updateLLMMetadataSection(metadata) {
-    // 기존 LLM 정보 섹션이 있는지 확인
-    let llmSection = document.querySelector('#llm-metadata-section');
-    
-    if (!llmSection) {
-        // LLM 정보 섹션이 없으면 생성
-        const reportCard = document.querySelector('#report .card-body');
-        if (reportCard) {
-            const llmSectionHtml = `
-                <div class="mb-4" id="llm-metadata-section">
-                    <h6 class="text-info">
-                        <i class="fas fa-robot me-2"></i>AI 분석 정보
-                    </h6>
-                    <div id="llm-metadata-content"></div>
-                </div>
-            `;
-            reportCard.insertAdjacentHTML('beforeend', llmSectionHtml);
-            llmSection = document.querySelector('#llm-metadata-section');
-        }
-    }
-    
-    if (llmSection) {
-        const contentDiv = llmSection.querySelector('#llm-metadata-content');
-        if (contentDiv) {
-            const generationMethod = metadata.generation_method;
-            const setupRequired = metadata.setup_required;
-            
-            let statusIcon, statusText, statusColor, helpText = '';
-            
-            switch (generationMethod) {
-                case 'llm':
-                    statusIcon = 'fas fa-check-circle';
-                    statusText = '🤖 AI 분석 완료';
-                    statusColor = 'text-success';
-                    helpText = 'GPT 모델이 데이터를 분석하여 맞춤형 인사이트를 생성했습니다.';
-                    break;
-                    
-                case 'api_key_required':
-                case 'no_api_key':
-                    statusIcon = 'fas fa-key';
-                    statusText = '🔑 API 키 설정 필요';
-                    statusColor = 'text-warning';
-                    helpText = 'OpenAI API 키를 설정하면 AI 기반 분석을 사용할 수 있습니다.';
-                    break;
-                    
-                case 'local_environment':
-                    statusIcon = 'fas fa-desktop';
-                    statusText = '💻 로컬 환경';
-                    statusColor = 'text-info';
-                    helpText = '현재 로컬 환경입니다. Docker 환경에서 AI 분석을 경험해보세요.';
-                    break;
-                    
-                case 'fallback_legacy':
-                    statusIcon = 'fas fa-cog';
-                    statusText = '⚙️ 기본 분석';
-                    statusColor = 'text-secondary';
-                    helpText = '기존 분석 로직을 사용했습니다.';
-                    break;
-                    
-                default:
-                    statusIcon = 'fas fa-question-circle';
-                    statusText = '❓ 알 수 없음';
-                    statusColor = 'text-muted';
-                    helpText = '분석 방식을 확인할 수 없습니다.';
-            }
-            
-            contentDiv.innerHTML = `
-                <div class="alert alert-${statusColor.replace('text-', '')} alert-sm mb-2" role="alert">
-                    <i class="${statusIcon} me-2"></i>
-                    <strong>${statusText}</strong>
-                    <br><small>${helpText}</small>
-                </div>
-                <ul class="list-unstyled mb-0">
-                    ${metadata.model_used ? `
-                        <li class="mb-1">
-                            <i class="fas fa-brain text-primary me-2"></i>
-                            <strong>모델:</strong> ${metadata.model_used}
-                        </li>
-                    ` : ''}
-                    <li class="mb-1">
-                        <i class="fas fa-clock text-muted me-2"></i>
-                        <strong>생성 시간:</strong> ${new Date(metadata.timestamp).toLocaleString('ko-KR')}
-                    </li>
-                    ${setupRequired ? `
-                        <li class="mb-1">
-                            <i class="fas fa-info-circle text-info me-2"></i>
-                            <strong>설정 가이드:</strong> 
-                            <a href="./LLM_INTEGRATION_GUIDE.md" target="_blank" class="text-decoration-none">
-                                LLM_INTEGRATION_GUIDE.md <i class="fas fa-external-link-alt"></i>
-                            </a>
-                        </li>
-                    ` : ''}
-                    ${metadata.error && generationMethod !== 'local_environment' ? `
-                        <li class="mb-1">
-                            <i class="fas fa-exclamation-circle text-danger me-2"></i>
-                            <strong>오류:</strong> <small class="text-muted">${metadata.error}</small>
-                        </li>
-                    ` : ''}
-                </ul>
-            `;
-        }
-    }
-}

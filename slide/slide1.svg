@@ -1,0 +1,51 @@
+<svg width="1920" height="1080" xmlns="http://www.w3.org/2000/svg">
+  <!-- 배경 그라데이션 -->
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <rect width="1920" height="1080" fill="url(#bgGradient)"/>
+  
+  <!-- 장식 요소 -->
+  <circle cx="200" cy="200" r="150" fill="rgba(255,255,255,0.1)"/>
+  <circle cx="1700" cy="900" r="200" fill="rgba(255,255,255,0.1)"/>
+  
+  <!-- 메인 제목 -->
+  <text x="960" y="400" font-family="Arial, sans-serif" font-size="80" font-weight="bold" fill="white" text-anchor="middle">
+    🤖 AI 기반 이탈자 분석 시스템
+  </text>
+  
+  <!-- 부제목 -->
+  <text x="960" y="500" font-family="Arial, sans-serif" font-size="40" fill="rgba(255,255,255,0.9)" text-anchor="middle">
+    데이터로 고객 이탈을 예측하고 방지하는 지능형 대시보드
+  </text>
+  
+  <!-- 기술 스택 아이콘 -->
+  <g transform="translate(700, 700)">
+    <rect x="0" y="0" width="120" height="60" rx="10" fill="rgba(255,255,255,0.2)"/>
+    <text x="60" y="40" font-family="Arial" font-size="24" fill="white" text-anchor="middle">🐍 Python</text>
+  </g>
+  
+  <g transform="translate(850, 700)">
+    <rect x="0" y="0" width="120" height="60" rx="10" fill="rgba(255,255,255,0.2)"/>
+    <text x="60" y="40" font-family="Arial" font-size="24" fill="white" text-anchor="middle">🗄️ PostgreSQL</text>
+  </g>
+  
+  <g transform="translate(1000, 700)">
+    <rect x="0" y="0" width="120" height="60" rx="10" fill="rgba(255,255,255,0.2)"/>
+    <text x="60" y="40" font-family="Arial" font-size="24" fill="white" text-anchor="middle">🤖 GPT</text>
+  </g>
+  
+  <g transform="translate(1150, 700)">
+    <rect x="0" y="0" width="120" height="60" rx="10" fill="rgba(255,255,255,0.2)"/>
+    <text x="60" y="40" font-family="Arial" font-size="24" fill="white" text-anchor="middle">🐳 Docker</text>
+  </g>
+  
+  <!-- 하단 정보 -->
+  <text x="960" y="950" font-family="Arial" font-size="28" fill="rgba(255,255,255,0.7)" text-anchor="middle">
+    2025년 10월 발표
+  </text>
+</svg>
