@@ -1,9 +1,7 @@
-import pandas as pd
 from sqlalchemy.orm import Session
-from sqlalchemy import text, func
+from sqlalchemy import text
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
-import json
+from typing import Dict, List, Optional
 from models import Event, User, MonthlyMetrics, UserSegment
 from llm_service import llm_generator
 
@@ -45,6 +43,24 @@ class ChurnAnalyzer:
             return f"EXTRACT(HOUR FROM {column_name})"
         else:  # 기본값은 SQLite
             return f"CAST(strftime('%H', {column_name}) AS INTEGER)"
+    
+    def _get_month_subtract(self, column_name: str, months: int) -> str:
+        """데이터베이스별로 적절한 월 빼기 SQL 반환"""
+        if self.is_sqlite:
+            return f"strftime('%Y-%m', datetime({column_name}, '-{months} months'))"
+        elif self.is_mysql:
+            return f"DATE_FORMAT(DATE_SUB({column_name}, INTERVAL {months} MONTH), '%Y-%m')"
+        else:  # 기본값은 SQLite
+            return f"strftime('%Y-%m', datetime({column_name}, '-{months} months'))"
+    
+    def _get_date_subtract_days(self, column_name: str, days: int) -> str:
+        """데이터베이스별로 적절한 일수 빼기 SQL 반환"""
+        if self.is_sqlite:
+            return f"datetime({column_name}, '-{days} days')"
+        elif self.is_mysql:
+            return f"DATE_SUB({column_name}, INTERVAL {days} DAY)"
+        else:  # 기본값은 SQLite
+            return f"datetime({column_name}, '-{days} days')"
     
     def run_full_analysis(
         self, 
@@ -232,7 +248,6 @@ class ChurnAnalyzer:
         
         for i in range(1, len(months)):
             current_month = months[i]
-            previous_month = months[i-1]
             
             metrics = self.get_monthly_metrics(current_month, threshold)
             
@@ -458,7 +473,13 @@ class ChurnAnalyzer:
         month_start = f"{month}-01"
         month_end = f"{month}-31"  # 간단화
         
-        date_subtract = self._get_date_subtract_days(':month_start', gap_days)
+        # SQLite/MySQL 호환성을 위해 직접 날짜 계산
+        if self.is_sqlite:
+            date_subtract_sql = f"datetime(:month_start, '-{gap_days} days')"
+        elif self.is_mysql:
+            date_subtract_sql = f"DATE_SUB(:month_start, INTERVAL {gap_days} DAY)"
+        else:
+            date_subtract_sql = f"datetime(:month_start, '-{gap_days} days')"
         
         query = text(f"""
         WITH current_month_active AS (
@@ -478,7 +499,7 @@ class ChurnAnalyzer:
         SELECT COUNT(*) as reactivated_count
         FROM user_last_activity_before
         WHERE last_activity_before IS NOT NULL
-        AND last_activity_before < {date_subtract}
+        AND last_activity_before < {date_subtract_sql}
         """)
         
         result = self.db.execute(query, {
@@ -769,7 +790,7 @@ class ChurnAnalyzer:
             previous_active_sum AS previous_active,
             churned_sum AS churned,
             CASE 
-                WHEN previous_active_sum > 0 THEN ROUND((churned_sum::float / previous_active_sum * 100), 1)
+                WHEN previous_active_sum > 0 THEN ROUND((CAST(churned_sum AS FLOAT) / previous_active_sum * 100), 1)
                 ELSE 0 
             END AS churn_rate,
             CASE WHEN previous_active_sum < :min_sample THEN true ELSE false END AS is_uncertain
@@ -861,7 +882,7 @@ class ChurnAnalyzer:
             previous_active,
             churned_users,
             CASE 
-                WHEN previous_active > 0 THEN ROUND((churned_users::float / previous_active * 100), 1)
+                WHEN previous_active > 0 THEN ROUND((CAST(churned_users AS FLOAT) / previous_active * 100), 1)
                 ELSE 0 
             END AS churn_rate,
             CASE WHEN previous_active < :min_sample THEN true ELSE false END AS is_uncertain
@@ -959,7 +980,7 @@ class ChurnAnalyzer:
             previous_active,
             churned_users,
             CASE 
-                WHEN previous_active > 0 THEN ROUND((churned_users::float / previous_active * 100), 1)
+                WHEN previous_active > 0 THEN ROUND((CAST(churned_users AS FLOAT) / previous_active * 100), 1)
                 ELSE 0 
             END AS churn_rate,
             CASE WHEN previous_active < :min_sample THEN true ELSE false END AS is_uncertain
@@ -1059,7 +1080,7 @@ class ChurnAnalyzer:
             previous_active,
             churned_users,
             CASE 
-                WHEN previous_active > 0 THEN ROUND((churned_users::float / previous_active * 100), 1)
+                WHEN previous_active > 0 THEN ROUND((CAST(churned_users AS FLOAT) / previous_active * 100), 1)
                 ELSE 0 
             END AS churn_rate,
             CASE WHEN previous_active < :min_sample THEN true ELSE false END AS is_uncertain
