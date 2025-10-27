@@ -28,14 +28,23 @@ class ChurnAnalyzer:
         else:  # 기본값은 SQLite
             return f"strftime('%Y-%m', {column_name})"
     
-    def _get_month_subtract(self, column_name: str, months: int = 1) -> str:
-        """데이터베이스별로 적절한 월 빼기 SQL 반환"""
+    def _get_extract_dow(self, column_name: str) -> str:
+        """데이터베이스별로 적절한 요일 추출 SQL 반환"""
         if self.is_sqlite:
-            return f"date({column_name}, '-{months} month')"
+            return f"CAST(strftime('%w', {column_name}) AS INTEGER)"
         elif self.is_mysql:
-            return f"DATE_SUB({column_name}, INTERVAL {months} MONTH)"
+            return f"WEEKDAY({column_name})"
         else:  # 기본값은 SQLite
-            return f"date({column_name}, '-{months} month')"
+            return f"CAST(strftime('%w', {column_name}) AS INTEGER)"
+    
+    def _get_extract_hour(self, column_name: str) -> str:
+        """데이터베이스별로 적절한 시간 추출 SQL 반환"""
+        if self.is_sqlite:
+            return f"CAST(strftime('%H', {column_name}) AS INTEGER)"
+        elif self.is_mysql:
+            return f"EXTRACT(HOUR FROM {column_name})"
+        else:  # 기본값은 SQLite
+            return f"CAST(strftime('%H', {column_name}) AS INTEGER)"
     
     def run_full_analysis(
         self, 
@@ -315,17 +324,20 @@ class ChurnAnalyzer:
     def _analyze_segment(self, segment_type: str, start_month: str, end_month: str) -> List[Dict]:
         """특정 세그먼트 분석 - 분석 기간 전체의 모든 월 전환을 집계하여 이탈률 계산"""
         
-        query = text(f"""
+        month_trunc = self._get_month_trunc('created_at')
+        month_subtract = self._get_month_subtract('sm.month', 1)
+        
+            query = text(f"""
         WITH segment_monthly AS (
             SELECT 
                 {segment_type} AS segment_value,
-                DATE_TRUNC('month', created_at) AS month,
+                {month_trunc} AS month,
                 user_hash
             FROM events 
-            WHERE DATE_TRUNC('month', created_at) BETWEEN :start_month AND :end_month
+            WHERE {month_trunc} BETWEEN :start_month AND :end_month
               AND {segment_type} IS NOT NULL 
               AND {segment_type} != 'Unknown'
-            GROUP BY {segment_type}, DATE_TRUNC('month', created_at), user_hash
+            GROUP BY {segment_type}, {month_trunc}, user_hash
         ),
         segment_months AS (
             SELECT DISTINCT segment_value, month FROM segment_monthly
@@ -334,7 +346,7 @@ class ChurnAnalyzer:
             SELECT 
                 sm.segment_value,
                 sm.month AS curr_month,
-                DATE_TRUNC('month', (sm.month - INTERVAL '1 month')) AS prev_month
+                {month_subtract} AS prev_month
             FROM segment_months sm
             WHERE sm.month > :start_month
         ),
@@ -389,10 +401,10 @@ class ChurnAnalyzer:
             previous_active_sum AS previous_active,
             churned_sum AS churned,
             CASE 
-                WHEN previous_active_sum > 0 THEN ROUND((churned_sum::float / previous_active_sum * 100), 1)
+                WHEN previous_active_sum > 0 THEN ROUND((CAST(churned_sum AS FLOAT) / previous_active_sum * 100), 1)
                 ELSE 0 
             END AS churn_rate,
-            CASE WHEN previous_active_sum < :min_sample THEN true ELSE false END AS is_uncertain
+            CASE WHEN previous_active_sum < :min_sample THEN 1 ELSE 0 END AS is_uncertain
         FROM aggregated
         WHERE previous_active_sum > 0
         ORDER BY churn_rate DESC
@@ -446,7 +458,9 @@ class ChurnAnalyzer:
         month_start = f"{month}-01"
         month_end = f"{month}-31"  # 간단화
         
-        query = text("""
+        date_subtract = self._get_date_subtract_days(':month_start', gap_days)
+        
+        query = text(f"""
         WITH current_month_active AS (
             SELECT DISTINCT user_hash
             FROM events
@@ -464,7 +478,7 @@ class ChurnAnalyzer:
         SELECT COUNT(*) as reactivated_count
         FROM user_last_activity_before
         WHERE last_activity_before IS NOT NULL
-        AND last_activity_before < (:month_start::date - INTERVAL ':gap_days days')
+        AND last_activity_before < {date_subtract}
         """)
         
         result = self.db.execute(query, {
@@ -560,14 +574,14 @@ class ChurnAnalyzer:
     def _check_data_quality(self, start_month: str, end_month: str) -> Dict:
         """데이터 품질 체크"""
         
-        query = text("""
+        query = text(f"""
         SELECT 
             COUNT(*) as total_events,
             COUNT(CASE WHEN user_hash IS NOT NULL AND created_at IS NOT NULL AND action IS NOT NULL THEN 1 END) as valid_events,
             COUNT(CASE WHEN gender = 'Unknown' OR age_band = 'Unknown' OR channel = 'Unknown' THEN 1 END) as unknown_values,
             COUNT(DISTINCT user_hash) as unique_users
         FROM events
-        WHERE DATE_TRUNC('month', created_at) BETWEEN :start_month AND :end_month
+        WHERE {self._get_month_trunc('created_at')} BETWEEN :start_month AND :end_month
         """)
         
         result = self.db.execute(query, {
@@ -674,21 +688,24 @@ class ChurnAnalyzer:
     def _analyze_combined_segments(self, start_month: str, end_month: str) -> List[Dict]:
         """복합 세그먼트 분석 (성별×연령×채널)"""
         
-        query = text("""
+        month_trunc = self._get_month_trunc('created_at')
+        month_subtract = self._get_month_subtract('sm.month', 1)
+        
+        query = text(f"""
         WITH segment_monthly AS (
             SELECT 
                 gender || '/' || age_band || '/' || channel AS segment_value,
-                DATE_TRUNC('month', created_at) AS month,
+                {month_trunc} AS month,
                 user_hash
             FROM events 
-            WHERE DATE_TRUNC('month', created_at) BETWEEN :start_month AND :end_month
+            WHERE {month_trunc} BETWEEN :start_month AND :end_month
               AND gender IS NOT NULL 
               AND age_band IS NOT NULL 
               AND channel IS NOT NULL
               AND gender != 'Unknown'
               AND age_band != 'Unknown'
               AND channel != 'Unknown'
-            GROUP BY gender, age_band, channel, DATE_TRUNC('month', created_at), user_hash
+            GROUP BY gender, age_band, channel, {month_trunc}, user_hash
         ),
         segment_months AS (
             SELECT DISTINCT segment_value, month FROM segment_monthly
@@ -697,7 +714,7 @@ class ChurnAnalyzer:
             SELECT 
                 sm.segment_value,
                 sm.month AS curr_month,
-                DATE_TRUNC('month', (sm.month - INTERVAL '1 month')) AS prev_month
+                {month_subtract} AS prev_month
             FROM segment_months sm
             WHERE sm.month > :start_month
         ),
@@ -782,25 +799,29 @@ class ChurnAnalyzer:
     def _analyze_weekday_pattern(self, start_month: str, end_month: str) -> List[Dict]:
         """활동 요일 패턴 세그먼트 분석"""
         
-        query = text("""
+        month_trunc = self._get_month_trunc('created_at')
+        extract_dow = self._get_extract_dow('created_at')
+        month_subtract = self._get_month_subtract('us.month', 1)
+        
+        query = text(f"""
         WITH user_weekday_stats AS (
             SELECT 
                 user_hash,
-                DATE_TRUNC('month', created_at) AS month,
-                COUNT(CASE WHEN EXTRACT(DOW FROM created_at) BETWEEN 1 AND 5 THEN 1 END) AS weekday_count,
-                COUNT(CASE WHEN EXTRACT(DOW FROM created_at) IN (0, 6) THEN 1 END) AS weekend_count,
+                {month_trunc} AS month,
+                COUNT(CASE WHEN {extract_dow} BETWEEN 1 AND 5 THEN 1 END) AS weekday_count,
+                COUNT(CASE WHEN {extract_dow} IN (0, 6) THEN 1 END) AS weekend_count,
                 COUNT(*) AS total_count
             FROM events
-            WHERE DATE_TRUNC('month', created_at) BETWEEN :start_month AND :end_month
-            GROUP BY user_hash, DATE_TRUNC('month', created_at)
+            WHERE {month_trunc} BETWEEN :start_month AND :end_month
+            GROUP BY user_hash, {month_trunc}
         ),
         user_segments AS (
             SELECT 
                 user_hash,
                 month,
                 CASE 
-                    WHEN weekday_count::float / NULLIF(total_count, 0) >= 0.7 THEN '평일주력'
-                    WHEN weekend_count::float / NULLIF(total_count, 0) >= 0.5 THEN '주말주력'
+                    WHEN CAST(weekday_count AS FLOAT) / NULLIF(total_count, 0) >= 0.7 THEN '평일주력'
+                    WHEN CAST(weekend_count AS FLOAT) / NULLIF(total_count, 0) >= 0.5 THEN '주말주력'
                     WHEN weekday_count = total_count THEN '평일만'
                     WHEN weekend_count = total_count THEN '주말만'
                     ELSE '혼합'
@@ -811,7 +832,7 @@ class ChurnAnalyzer:
             SELECT DISTINCT
                 us.segment_value,
                 us.month AS curr_month,
-                DATE_TRUNC('month', (us.month - INTERVAL '1 month')) AS prev_month
+                {month_subtract} AS prev_month
             FROM user_segments us
             WHERE us.month > :start_month
         ),
@@ -870,32 +891,36 @@ class ChurnAnalyzer:
     def _analyze_time_pattern(self, start_month: str, end_month: str) -> List[Dict]:
         """활동 시간대 세그먼트 분석"""
         
-        query = text("""
+        month_trunc = self._get_month_trunc('created_at')
+        extract_hour = self._get_extract_hour('created_at')
+        month_subtract = self._get_month_subtract('us.month', 1)
+        
+        query = text(f"""
         WITH user_hour_stats AS (
             SELECT 
                 user_hash,
-                DATE_TRUNC('month', created_at) AS month,
-                COUNT(CASE WHEN EXTRACT(HOUR FROM created_at) BETWEEN 6 AND 11 THEN 1 END) AS morning_count,
-                COUNT(CASE WHEN EXTRACT(HOUR FROM created_at) BETWEEN 12 AND 17 THEN 1 END) AS afternoon_count,
-                COUNT(CASE WHEN EXTRACT(HOUR FROM created_at) BETWEEN 18 AND 23 THEN 1 END) AS evening_count,
-                COUNT(CASE WHEN EXTRACT(HOUR FROM created_at) BETWEEN 0 AND 5 THEN 1 END) AS night_count,
+                {month_trunc} AS month,
+                COUNT(CASE WHEN {extract_hour} BETWEEN 6 AND 11 THEN 1 END) AS morning_count,
+                COUNT(CASE WHEN {extract_hour} BETWEEN 12 AND 17 THEN 1 END) AS afternoon_count,
+                COUNT(CASE WHEN {extract_hour} BETWEEN 18 AND 23 THEN 1 END) AS evening_count,
+                COUNT(CASE WHEN {extract_hour} BETWEEN 0 AND 5 THEN 1 END) AS night_count,
                 COUNT(*) AS total_count
             FROM events
-            WHERE DATE_TRUNC('month', created_at) BETWEEN :start_month AND :end_month
-            GROUP BY user_hash, DATE_TRUNC('month', created_at)
+            WHERE {month_trunc} BETWEEN :start_month AND :end_month
+            GROUP BY user_hash, {month_trunc}
         ),
         user_segments AS (
             SELECT 
                 user_hash,
                 month,
                 CASE 
-                    WHEN morning_count = (SELECT MAX(v) FROM UNNEST(ARRAY[morning_count, afternoon_count, evening_count, night_count]) AS v)
+                    WHEN morning_count >= afternoon_count AND morning_count >= evening_count AND morning_count >= night_count
                     THEN '오전'
-                    WHEN afternoon_count = (SELECT MAX(v) FROM UNNEST(ARRAY[morning_count, afternoon_count, evening_count, night_count]) AS v)
+                    WHEN afternoon_count >= morning_count AND afternoon_count >= evening_count AND afternoon_count >= night_count
                     THEN '오후'
-                    WHEN evening_count = (SELECT MAX(v) FROM UNNEST(ARRAY[morning_count, afternoon_count, evening_count, night_count]) AS v)
+                    WHEN evening_count >= morning_count AND evening_count >= afternoon_count AND evening_count >= night_count
                     THEN '저녁'
-                    WHEN night_count = (SELECT MAX(v) FROM UNNEST(ARRAY[morning_count, afternoon_count, evening_count, night_count]) AS v)
+                    WHEN night_count >= morning_count AND night_count >= afternoon_count AND night_count >= evening_count
                     THEN '새벽'
                     ELSE '혼합'
                 END AS segment_value
@@ -905,7 +930,7 @@ class ChurnAnalyzer:
             SELECT DISTINCT
                 us.segment_value,
                 us.month AS curr_month,
-                DATE_TRUNC('month', (us.month - INTERVAL '1 month')) AS prev_month
+                {month_subtract} AS prev_month
             FROM user_segments us
             WHERE us.month > :start_month
         ),
@@ -964,11 +989,14 @@ class ChurnAnalyzer:
     def _analyze_action_type_segment(self, start_month: str, end_month: str) -> List[Dict]:
         """이벤트 타입별 세그먼트 분석"""
         
+        month_trunc = self._get_month_trunc('created_at')
+        month_subtract = self._get_month_subtract('us.month', 1)
+        
         query = text(f"""
         WITH user_action_stats AS (
             SELECT 
                 user_hash,
-                DATE_TRUNC('month', created_at) AS month,
+                {month_trunc} AS month,
                 COUNT(CASE WHEN action = 'view' THEN 1 END) AS view_count,
                 COUNT(CASE WHEN action = 'login' THEN 1 END) AS login_count,
                 COUNT(CASE WHEN action = 'comment' THEN 1 END) AS comment_count,
@@ -976,23 +1004,23 @@ class ChurnAnalyzer:
                 COUNT(CASE WHEN action = 'post' THEN 1 END) AS post_count,
                 COUNT(*) AS total_count
             FROM events
-            WHERE DATE_TRUNC('month', created_at) BETWEEN :start_month AND :end_month
-            GROUP BY user_hash, DATE_TRUNC('month', created_at)
+            WHERE {month_trunc} BETWEEN :start_month AND :end_month
+            GROUP BY user_hash, {month_trunc}
         ),
         user_segments AS (
             SELECT 
                 user_hash,
                 month,
                 CASE 
-                    WHEN view_count = (SELECT MAX(v) FROM UNNEST(ARRAY[view_count, login_count, comment_count, like_count, post_count]) AS v)
+                    WHEN view_count >= login_count AND view_count >= comment_count AND view_count >= like_count AND view_count >= post_count
                     THEN 'view'
-                    WHEN login_count = (SELECT MAX(v) FROM UNNEST(ARRAY[view_count, login_count, comment_count, like_count, post_count]) AS v)
+                    WHEN login_count >= view_count AND login_count >= comment_count AND login_count >= like_count AND login_count >= post_count
                     THEN 'login'
-                    WHEN comment_count = (SELECT MAX(v) FROM UNNEST(ARRAY[view_count, login_count, comment_count, like_count, post_count]) AS v)
+                    WHEN comment_count >= view_count AND comment_count >= login_count AND comment_count >= like_count AND comment_count >= post_count
                     THEN 'comment'
-                    WHEN like_count = (SELECT MAX(v) FROM UNNEST(ARRAY[view_count, login_count, comment_count, like_count, post_count]) AS v)
+                    WHEN like_count >= view_count AND like_count >= login_count AND like_count >= comment_count AND like_count >= post_count
                     THEN 'like'
-                    WHEN post_count = (SELECT MAX(v) FROM UNNEST(ARRAY[view_count, login_count, comment_count, like_count, post_count]) AS v)
+                    WHEN post_count >= view_count AND post_count >= login_count AND post_count >= comment_count AND post_count >= like_count
                     THEN 'post'
                     ELSE 'mixed'
                 END AS segment_value
@@ -1002,7 +1030,7 @@ class ChurnAnalyzer:
             SELECT DISTINCT
                 us.segment_value,
                 us.month AS curr_month,
-                DATE_TRUNC('month', (us.month - INTERVAL '1 month')) AS prev_month
+                {month_subtract} AS prev_month
             FROM user_segments us
             WHERE us.month > :start_month
         ),

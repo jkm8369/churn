@@ -16,24 +16,38 @@ class BenchmarkValidator:
     def __init__(self, db_session):
         self.db = db_session
         self.analyzer = ChurnAnalyzer(db_session)
+        
+        # 데이터베이스 타입 확인
+        from database import DATABASE_URL
+        self.is_sqlite = DATABASE_URL.startswith('sqlite')
+        self.is_mysql = 'mysql' in DATABASE_URL.lower()
+    
+    def _get_month_trunc(self, column_name: str = 'created_at') -> str:
+        """데이터베이스별로 적절한 월 추출 SQL 반환"""
+        if self.is_sqlite:
+            return f"strftime('%Y-%m', {column_name})"
+        elif self.is_mysql:
+            return f"DATE_FORMAT({column_name}, '%Y-%m')"
+        else:  # 기본값은 SQLite
+            return f"strftime('%Y-%m', {column_name})"
     
     def get_data_statistics(self, start_month: str, end_month: str) -> Dict:
         """데이터 통계 정보 조회"""
         
         print("📊 데이터 통계 조회 중...")
         
-        query = text("""
+        query = text(f"""
         SELECT 
             COUNT(*) as total_events,
             COUNT(DISTINCT user_hash) as unique_users,
-            COUNT(DISTINCT DATE_TRUNC('month', created_at)) as months_covered,
+            COUNT(DISTINCT {self._get_month_trunc('created_at')}) as months_covered,
             MIN(created_at) as earliest_event,
             MAX(created_at) as latest_event,
             COUNT(CASE WHEN gender IS NOT NULL AND gender != 'Unknown' THEN 1 END) as gender_known,
             COUNT(CASE WHEN age_band IS NOT NULL AND age_band != 'Unknown' THEN 1 END) as age_known,
             COUNT(CASE WHEN channel IS NOT NULL AND channel != 'Unknown' THEN 1 END) as channel_known
         FROM events
-        WHERE DATE_TRUNC('month', created_at) BETWEEN :start_month AND :end_month
+        WHERE {self._get_month_trunc('created_at')} BETWEEN :start_month AND :end_month
         """)
         
         result = self.db.execute(query, {
@@ -107,15 +121,15 @@ class BenchmarkValidator:
         previous_month = self.analyzer._get_previous_month(month)
         
         # 직접 SQL로 계산
-        query = text("""
+        query = text(f"""
         WITH monthly_users AS (
             SELECT 
-                DATE_TRUNC('month', created_at) as month,
+                {self._get_month_trunc('created_at')} as month,
                 user_hash,
                 COUNT(*) as event_count
             FROM events 
-            WHERE DATE_TRUNC('month', created_at) IN (:prev_month, :curr_month)
-            GROUP BY DATE_TRUNC('month', created_at), user_hash
+            WHERE {self._get_month_trunc('created_at')} IN (:prev_month, :curr_month)
+            GROUP BY {self._get_month_trunc('created_at')}, user_hash
             HAVING COUNT(*) >= :threshold
         ),
         current_active AS (
@@ -297,13 +311,13 @@ class BenchmarkValidator:
         WITH segment_monthly AS (
             SELECT 
                 {segment_type} AS segment_value,
-                DATE_TRUNC('month', created_at) AS month,
+                {self._get_month_trunc('created_at')} AS month,
                 user_hash
             FROM events 
-            WHERE DATE_TRUNC('month', created_at) BETWEEN :start_month AND :end_month
+            WHERE {self._get_month_trunc('created_at')} BETWEEN :start_month AND :end_month
               AND {segment_type} IS NOT NULL 
               AND {segment_type} != 'Unknown'
-            GROUP BY {segment_type}, DATE_TRUNC('month', created_at), user_hash
+            GROUP BY {segment_type}, {self._get_month_trunc('created_at')}, user_hash
         )
         SELECT 
             segment_value,

@@ -13,6 +13,20 @@ class ValidationDataGenerator:
     def __init__(self, db_session):
         self.db = db_session
         self.engine = db_session.bind
+        
+        # 데이터베이스 타입 확인
+        from database import DATABASE_URL
+        self.is_sqlite = DATABASE_URL.startswith('sqlite')
+        self.is_mysql = 'mysql' in DATABASE_URL.lower()
+    
+    def _get_month_trunc(self, column_name: str = 'created_at') -> str:
+        """데이터베이스별로 적절한 월 추출 SQL 반환"""
+        if self.is_sqlite:
+            return f"strftime('%Y-%m', {column_name})"
+        elif self.is_mysql:
+            return f"DATE_FORMAT({column_name}, '%Y-%m')"
+        else:  # 기본값은 SQLite
+            return f"strftime('%Y-%m', {column_name})"
     
     def clear_existing_data(self):
         """기존 데이터 삭제"""
@@ -409,16 +423,17 @@ class ValidationDataGenerator:
         print(f"총 이벤트 수: {event_count}개")
         
         # 월별 이벤트 수
-        monthly_events = self.db.execute(text("""
-            SELECT DATE_TRUNC('month', created_at) as month, COUNT(*) as count
+        monthly_events = self.db.execute(text(f"""
+            SELECT {self._get_month_trunc('created_at')} as month, COUNT(*) as count
             FROM events
-            GROUP BY DATE_TRUNC('month', created_at)
+            GROUP BY {self._get_month_trunc('created_at')}
             ORDER BY month
         """)).fetchall()
         
         print("\n월별 이벤트 수:")
         for row in monthly_events:
-            print(f"  {row.month.strftime('%Y-%m')}: {row.count}개")
+            month_str = row.month if isinstance(row.month, str) else row.month.strftime('%Y-%m')
+            print(f"  {month_str}: {row.count}개")
         
         # 세그먼트별 사용자 수
         print("\n세그먼트별 사용자 수:")

@@ -17,6 +17,20 @@ class CalculationValidator:
     def __init__(self, db_session):
         self.db = db_session
         self.analyzer = ChurnAnalyzer(db_session)
+        
+        # 데이터베이스 타입 확인
+        from database import DATABASE_URL
+        self.is_sqlite = DATABASE_URL.startswith('sqlite')
+        self.is_mysql = 'mysql' in DATABASE_URL.lower()
+    
+    def _get_month_trunc(self, column_name: str = 'created_at') -> str:
+        """데이터베이스별로 적절한 월 추출 SQL 반환"""
+        if self.is_sqlite:
+            return f"strftime('%Y-%m', {column_name})"
+        elif self.is_mysql:
+            return f"DATE_FORMAT({column_name}, '%Y-%m')"
+        else:  # 기본값은 SQLite
+            return f"strftime('%Y-%m', {column_name})"
     
     def validate_churn_calculation(self, month: str, threshold: int = 1, verbose: bool = True):
         """이탈률 계산을 단계별로 검증"""
@@ -25,17 +39,17 @@ class CalculationValidator:
         print("=" * 60)
         
         # 1. 원시 데이터 조회
-        query = text("""
+        query = text(f"""
         WITH monthly_users AS (
             SELECT 
-                DATE_TRUNC('month', created_at) as month,
+                {self._get_month_trunc('created_at')} as month,
                 user_hash,
                 COUNT(*) as event_count
             FROM events 
-            WHERE DATE_TRUNC('month', created_at) IN (
+            WHERE {self._get_month_trunc('created_at')} IN (
                 :prev_month, :curr_month
             )
-            GROUP BY DATE_TRUNC('month', created_at), user_hash
+            GROUP BY {self._get_month_trunc('created_at')}, user_hash
             HAVING COUNT(*) >= :threshold
         )
         SELECT 
@@ -154,14 +168,14 @@ class CalculationValidator:
         query = text(f"""
         SELECT 
             {segment_type} AS segment_value,
-            DATE_TRUNC('month', created_at) AS month,
+            {self._get_month_trunc('created_at')} AS month,
             user_hash,
             COUNT(*) as event_count
         FROM events 
-        WHERE DATE_TRUNC('month', created_at) BETWEEN :start_month AND :end_month
+        WHERE {self._get_month_trunc('created_at')} BETWEEN :start_month AND :end_month
           AND {segment_type} IS NOT NULL 
           AND {segment_type} != 'Unknown'
-        GROUP BY {segment_type}, DATE_TRUNC('month', created_at), user_hash
+        GROUP BY {segment_type}, {self._get_month_trunc('created_at')}, user_hash
         ORDER BY {segment_type}, month, user_hash
         """)
         
