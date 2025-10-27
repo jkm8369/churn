@@ -327,7 +327,7 @@ class ChurnAnalyzer:
         month_trunc = self._get_month_trunc('created_at')
         month_subtract = self._get_month_subtract('sm.month', 1)
         
-            query = text(f"""
+        query = text(f"""
         WITH segment_monthly AS (
             SELECT 
                 {segment_type} AS segment_value,
