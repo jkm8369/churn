@@ -7,6 +7,9 @@ from enum import Enum
 class ActionType(str, Enum):
     post = "post"
     comment = "comment"
+    view = "view"
+    login = "login"
+    like = "like"
 
 class GenderType(str, Enum):
     M = "M"
@@ -46,8 +49,8 @@ class EventCreate(BaseModel):
         return v
 
 class AnalysisRequest(BaseModel):
-    start_month: str = Field(..., regex=r'^\d{4}-\d{2}$')
-    end_month: str = Field(..., regex=r'^\d{4}-\d{2}$')
+    start_month: str = Field(..., pattern=r'^\d{4}-\d{2}$')
+    end_month: str = Field(..., pattern=r'^\d{4}-\d{2}$')
     segments: Dict[str, bool] = Field(default={
         "gender": True,
         "age_band": True,

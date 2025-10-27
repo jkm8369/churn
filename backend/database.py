@@ -6,14 +6,18 @@ import os
 from urllib.parse import quote_plus
 
 # 환경 변수에서 데이터베이스 설정 읽기
+# 기본적으로 SQLite 사용 (개발 환경)
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://churn_user:churn_password@localhost:5432/churn_analysis"
+    "sqlite:///./churn_analysis.db"
 )
 
-# 개발 환경에서는 SQLite 사용 가능
-if os.getenv("ENVIRONMENT") == "development":
-    DATABASE_URL = "sqlite:///./churn_analysis.db"
+# 프로덕션 환경에서는 MySQL 사용
+if os.getenv("ENVIRONMENT") == "production":
+    DATABASE_URL = os.getenv(
+        "DATABASE_URL",
+        "mysql+pymysql://churn_user:churn_password@localhost:3306/churn_analysis"
+    )
 
 # SQLAlchemy 엔진 생성
 if DATABASE_URL.startswith("sqlite"):

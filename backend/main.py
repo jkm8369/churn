@@ -10,25 +10,49 @@ import json
 import os
 from pydantic import BaseModel
 
-from database import get_db, engine
-from models import Event, User, ChurnAnalysis
+from database import get_db, engine, init_db
+from models import Event, User, ChurnAnalysis, Base
 from schemas import EventCreate, ChurnMetrics, SegmentAnalysis
 from analytics import ChurnAnalyzer
 
 app = FastAPI(title="Churn Analysis API", version="1.0.0")
 
+# 데이터베이스 초기화 (시작 시)
+@app.on_event("startup")
+async def startup_event():
+    """서버 시작 시 데이터베이스 테이블 생성"""
+    try:
+        Base.metadata.create_all(bind=engine)
+        print("✅ 데이터베이스 테이블 초기화 완료")
+    except Exception as e:
+        print(f"⚠️ 데이터베이스 초기화 실패: {e}")
+
 # CORS 설정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:5500"],  # 프론트엔드 도메인
+    allow_origins=[
+        "http://localhost:3000", 
+        "http://127.0.0.1:3000",
+        "http://localhost:5500", 
+        "http://127.0.0.1:5500",
+        "*"  # 개발 중에는 모든 origin 허용
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 # Redis 연결 (환경 변수 기반)
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-redis_client = redis.from_url(redis_url, decode_responses=True)
+try:
+    redis_client = redis.from_url(redis_url, decode_responses=True)
+    redis_client.ping()  # Redis 연결 테스트
+    print(f"✅ Redis 연결 성공: {redis_url}")
+except Exception as e:
+    print(f"⚠️ Redis 연결 실패: {e}")
+    print("⚠️ Redis 없이 실행됩니다 (캐싱 비활성화)")
+    redis_client = None
 
 
 DEFAULT_CACHE_PATTERNS: List[str] = [
@@ -42,7 +66,10 @@ DEFAULT_CACHE_PATTERNS: List[str] = [
 
 def _collect_cache_keys(patterns: Iterable[str]) -> List[str]:
     """지정된 패턴의 캐시 키를 모두 수집"""
-
+    
+    if not redis_client:
+        return []
+    
     keys: List[str] = []
     seen = set()
 
@@ -57,6 +84,9 @@ def _collect_cache_keys(patterns: Iterable[str]) -> List[str]:
 
 def invalidate_cache(patterns: Optional[List[str]] = None) -> int:
     """패턴 목록에 해당하는 캐시 키를 삭제하고 삭제된 키 수를 반환"""
+    
+    if not redis_client:
+        return 0
 
     if patterns is None:
         patterns = DEFAULT_CACHE_PATTERNS
@@ -71,7 +101,7 @@ def invalidate_cache(patterns: Optional[List[str]] = None) -> int:
 class AnalysisRequest(BaseModel):
     start_month: str  # "2025-08" (월 단위) 또는 "2025-08-01" (날짜 단위)
     end_month: str    # "2025-10" (월 단위) 또는 "2025-10-31" (날짜 단위)
-    segments: dict = {"gender": True, "age_band": True, "channel": True}
+    segments: dict = {"gender": True, "age_band": True, "channel": True, "combined": False, "weekday_pattern": False, "time_pattern": False, "action_type": False}
     inactivity_days: List[int] = [30, 60, 90]
     threshold: int = 1  # 최소 이벤트 수 (활성 사용자 기준)
 
@@ -118,10 +148,14 @@ async def run_analysis(
     inactivity_key = "_".join(map(str, sorted(request.inactivity_days)))
     cache_key = f"churn_analysis:{request.start_month}:{request.end_month}:{segments_key}:{inactivity_key}:{request.threshold}"
     
-    # 캐시된 결과 확인
-    cached_result = redis_client.get(cache_key)
-    if cached_result:
-        return json.loads(cached_result)
+    # 캐시된 결과 확인 (Redis가 있을 때만)
+    if redis_client:
+        try:
+            cached_result = redis_client.get(cache_key)
+            if cached_result:
+                return json.loads(cached_result)
+        except Exception as e:
+            print(f"⚠️ Redis 캐시 읽기 실패: {e}")
     
     try:
         # 분석 실행
@@ -134,8 +168,12 @@ async def run_analysis(
             threshold=request.threshold
         )
         
-        # 결과 캐시 (1시간)
-        redis_client.setex(cache_key, 3600, json.dumps(result, default=str))
+        # 결과 캐시 (1시간) - Redis가 있을 때만
+        if redis_client:
+            try:
+                redis_client.setex(cache_key, 3600, json.dumps(result, default=str))
+            except Exception as e:
+                print(f"⚠️ Redis 캐시 쓰기 실패: {e}")
         
         # 백그라운드에서 분석 결과 DB 저장
         background_tasks.add_task(save_analysis_result, result, db)
@@ -143,6 +181,8 @@ async def run_analysis(
         return result
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"분석 실행 중 오류: {str(e)}")
 
 @app.get("/analysis/metrics")
@@ -153,17 +193,26 @@ async def get_metrics(
     """월별 주요 지표 조회"""
     
     cache_key = f"metrics:{month}"
-    cached_result = redis_client.get(cache_key)
     
-    if cached_result:
-        return json.loads(cached_result)
+    # 캐시된 결과 확인 (Redis가 있을 때만)
+    if redis_client:
+        try:
+            cached_result = redis_client.get(cache_key)
+            if cached_result:
+                return json.loads(cached_result)
+        except Exception as e:
+            print(f"⚠️ Redis 캐시 읽기 실패: {e}")
     
     try:
         analyzer = ChurnAnalyzer(db)
         metrics = analyzer.get_monthly_metrics(month)
         
-        # 캐시 저장 (30분)
-        redis_client.setex(cache_key, 1800, json.dumps(metrics, default=str))
+        # 캐시 저장 (30분) - Redis가 있을 때만
+        if redis_client:
+            try:
+                redis_client.setex(cache_key, 1800, json.dumps(metrics, default=str))
+            except Exception as e:
+                print(f"⚠️ Redis 캐시 쓰기 실패: {e}")
         
         return metrics
         
@@ -179,21 +228,32 @@ async def get_segment_analysis(
     """세그먼트별 이탈률 분석"""
     
     cache_key = f"segments:{start_month}:{end_month}"
-    cached_result = redis_client.get(cache_key)
     
-    if cached_result:
-        return json.loads(cached_result)
+    # 캐시된 결과 확인 (Redis가 있을 때만)
+    if redis_client:
+        try:
+            cached_result = redis_client.get(cache_key)
+            if cached_result:
+                return json.loads(cached_result)
+        except Exception as e:
+            print(f"⚠️ Redis 캐시 읽기 실패: {e}")
     
     try:
         analyzer = ChurnAnalyzer(db)
         segments = analyzer.get_segment_analysis(start_month, end_month)
         
-        # 캐시 저장 (1시간)
-        redis_client.setex(cache_key, 3600, json.dumps(segments, default=str))
+        # 캐시 저장 (1시간) - Redis가 있을 때만
+        if redis_client:
+            try:
+                redis_client.setex(cache_key, 3600, json.dumps(segments, default=str))
+            except Exception as e:
+                print(f"⚠️ Redis 캐시 쓰기 실패: {e}")
         
         return segments
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/analysis/trends")

@@ -16,9 +16,6 @@
                 <i class="fas fa-chart-line me-2"></i>
                 이탈자 분석 시스템 (Churn Analysis Dashboard)
             </span>
-            <span class="navbar-text">
-                v1.0 | 2025-10-10
-            </span>
         </div>
     </header>
 
@@ -81,10 +78,34 @@
                                     연령대 (Age Band)
                                 </label>
                             </div>
-                            <div class="form-check mb-3">
+                            <div class="form-check mb-2">
                                 <input class="form-check-input" type="checkbox" id="channelSegment">
                                 <label class="form-check-label" for="channelSegment">
                                     채널 (Channel)
+                                </label>
+                            </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="combinedSegment">
+                                <label class="form-check-label" for="combinedSegment">
+                                    복합 세그먼트
+                                </label>
+                            </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="weekdayPattern">
+                                <label class="form-check-label" for="weekdayPattern">
+                                    활동 요일 패턴
+                                </label>
+                            </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="timePattern">
+                                <label class="form-check-label" for="timePattern">
+                                    활동 시간대
+                                </label>
+                            </div>
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="actionType">
+                                <label class="form-check-label" for="actionType">
+                                    이벤트 타입
                                 </label>
                             </div>
                         </div>
@@ -271,12 +292,14 @@
                                     <h6 class="text-primary">
                                         <i class="fas fa-chart-pie me-2"></i>세그먼트별 분석 결과
                                     </h6>
-                                    <ul class="list-unstyled">
-                                        <li class="mb-2">
-                                            <i class="fas fa-circle text-muted me-2" style="font-size: 0.5rem;"></i>
-                                            분석을 실행하면 세그먼트별 상세 결과가 표시됩니다.
-                                        </li>
-                                    </ul>
+                                    <div id="segmentAnalysisResults">
+                                        <ul class="list-unstyled">
+                                            <li class="mb-2">
+                                                <i class="fas fa-circle text-muted me-2" style="font-size: 0.5rem;"></i>
+                                                분석을 실행하면 세그먼트별 상세 결과가 표시됩니다.
+                                            </li>
+                                        </ul>
+                                    </div>
                                 </div>
 
                             </div>

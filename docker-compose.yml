@@ -1,22 +1,22 @@
 version: '3.8'
 
 services:
-  # PostgreSQL 데이터베이스
-  postgres:
-    image: pgvector/pgvector:pg15
-    container_name: churn_postgres
+  # MySQL 데이터베이스
+  mysql:
+    image: mysql:8.0
+    container_name: churn_mysql
     environment:
-      POSTGRES_DB: churn_analysis
-      POSTGRES_USER: churn_user
-      POSTGRES_PASSWORD: churn_password
-      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+      MYSQL_DATABASE: churn_analysis
+      MYSQL_USER: churn_user
+      MYSQL_PASSWORD: churn_password
+      MYSQL_ROOT_PASSWORD: root_password
     ports:
-      - "5432:5432"
+      - "3306:3306"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - mysql_data:/var/lib/mysql
       - ./backend/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U churn_user -d churn_analysis"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -45,7 +45,7 @@ services:
       dockerfile: Dockerfile
     container_name: churn_backend
     environment:
-      - DATABASE_URL=postgresql://churn_user:churn_password@postgres:5432/churn_analysis
+      - DATABASE_URL=mysql+pymysql://churn_user:churn_password@mysql:3306/churn_analysis
       - REDIS_URL=redis://redis:6379/0
       - ENVIRONMENT=production
       - SQL_ECHO=false
@@ -58,7 +58,7 @@ services:
       - ./reports:/app/reports
       - ./dashboards:/app/dashboards
     depends_on:
-      postgres:
+      mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -92,14 +92,14 @@ services:
       dockerfile: Dockerfile.worker
     container_name: churn_collector
     environment:
-      - DATABASE_URL=postgresql://churn_user:churn_password@postgres:5432/churn_analysis
+      - DATABASE_URL=mysql+pymysql://churn_user:churn_password@mysql:3306/churn_analysis
       - REDIS_URL=redis://redis:6379/0
       - WORKER_TYPE=data_collector
     volumes:
       - ./backend:/app
       - ./data:/app/data
     depends_on:
-      postgres:
+      mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -112,20 +112,20 @@ services:
       dockerfile: Dockerfile.worker
     container_name: churn_scheduler
     environment:
-      - DATABASE_URL=postgresql://churn_user:churn_password@postgres:5432/churn_analysis
+      - DATABASE_URL=mysql+pymysql://churn_user:churn_password@mysql:3306/churn_analysis
       - REDIS_URL=redis://redis:6379/0
       - WORKER_TYPE=scheduler
     volumes:
       - ./backend:/app
     depends_on:
-      postgres:
+      mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
     restart: unless-stopped
 
 volumes:
-  postgres_data:
+  mysql_data:
     driver: local
   redis_data:
     driver: local

@@ -49,7 +49,7 @@ class TestAnalyticsCalculations:
             'events': [
                 # 2024-01월 데이터 (이전 월)
                 {'user_hash': 'user1', 'created_at': '2024-01-15 10:00:00', 'action': 'login'},
-                {'user_hash': 'user1', 'created_at': '2024-01-20 14:00:00', 'action': 'purchase'},
+                {'user_hash': 'user1', 'created_at': '2024-01-20 14:00:00', 'action': 'post'},
                 {'user_hash': 'user2', 'created_at': '2024-01-10 09:00:00', 'action': 'login'},
                 {'user_hash': 'user3', 'created_at': '2024-01-25 16:00:00', 'action': 'login'},
                 {'user_hash': 'user4', 'created_at': '2024-01-12 11:00:00', 'action': 'login'},
@@ -140,7 +140,7 @@ class TestAnalyticsCalculations:
                 
                 # 높은 활동 사용자 (3개 이벤트)
                 {'user_hash': 'high_activity', 'created_at': '2024-01-15 10:00:00', 'action': 'login'},
-                {'user_hash': 'high_activity', 'created_at': '2024-01-20 14:00:00', 'action': 'purchase'},
+                {'user_hash': 'high_activity', 'created_at': '2024-01-20 14:00:00', 'action': 'post'},
                 {'user_hash': 'high_activity', 'created_at': '2024-01-25 16:00:00', 'action': 'view'},
                 {'user_hash': 'high_activity', 'created_at': '2024-02-10 10:00:00', 'action': 'login'},
             ]

@@ -13,6 +13,29 @@ class ChurnAnalyzer:
     def __init__(self, db: Session):
         self.db = db
         self.min_sample_size = 50  # Uncertain 라벨 기준
+        
+        # 데이터베이스 타입 확인
+        from database import DATABASE_URL
+        self.is_sqlite = DATABASE_URL.startswith('sqlite')
+        self.is_mysql = 'mysql' in DATABASE_URL.lower()
+    
+    def _get_month_trunc(self, column_name: str = 'created_at') -> str:
+        """데이터베이스별로 적절한 월 추출 SQL 반환"""
+        if self.is_sqlite:
+            return f"strftime('%Y-%m', {column_name})"
+        elif self.is_mysql:
+            return f"DATE_FORMAT({column_name}, '%Y-%m')"
+        else:  # 기본값은 SQLite
+            return f"strftime('%Y-%m', {column_name})"
+    
+    def _get_month_subtract(self, column_name: str, months: int = 1) -> str:
+        """데이터베이스별로 적절한 월 빼기 SQL 반환"""
+        if self.is_sqlite:
+            return f"date({column_name}, '-{months} month')"
+        elif self.is_mysql:
+            return f"DATE_SUB({column_name}, INTERVAL {months} MONTH)"
+        else:  # 기본값은 SQLite
+            return f"date({column_name}, '-{months} month')"
     
     def run_full_analysis(
         self, 
@@ -45,6 +68,14 @@ class ChurnAnalyzer:
                 segment_analysis["age_band"] = self._analyze_segment("age_band", start_month, end_month)
             if segments.get("channel", False):
                 segment_analysis["channel"] = self._analyze_segment("channel", start_month, end_month)
+            if segments.get("combined", False):
+                segment_analysis["combined"] = self._analyze_combined_segments(start_month, end_month)
+            if segments.get("weekday_pattern", False):
+                segment_analysis["weekday_pattern"] = self._analyze_weekday_pattern(start_month, end_month)
+            if segments.get("time_pattern", False):
+                segment_analysis["time_pattern"] = self._analyze_time_pattern(start_month, end_month)
+            if segments.get("action_type", False):
+                segment_analysis["action_type"] = self._analyze_action_type_segment(start_month, end_month)
             
             # 4. 장기 미접속 분석
             inactivity_analysis = self._analyze_inactivity(end_month, inactivity_days)
@@ -105,16 +136,18 @@ class ChurnAnalyzer:
         current_month = month
         previous_month = self._get_previous_month(month)
         
+        month_trunc = self._get_month_trunc('created_at')
+        
         # SQL 쿼리로 효율적인 계산
-        query = text("""
+        query = text(f"""
         WITH monthly_users AS (
             SELECT 
-                DATE_TRUNC('month', created_at) as month,
+                {month_trunc} as month,
                 user_hash,
                 COUNT(*) as event_count
             FROM events 
-            WHERE DATE_TRUNC('month', created_at) IN (:prev_month, :curr_month)
-            GROUP BY DATE_TRUNC('month', created_at), user_hash
+            WHERE {month_trunc} IN (:prev_month, :curr_month)
+            GROUP BY {month_trunc}, user_hash
             HAVING COUNT(*) >= :threshold
         ),
         current_active AS (
@@ -144,8 +177,8 @@ class ChurnAnalyzer:
         """)
         
         result = self.db.execute(query, {
-            "curr_month": f"{current_month}-01",
-            "prev_month": f"{previous_month}-01",
+            "curr_month": current_month,
+            "prev_month": previous_month,
             "threshold": threshold
         }).fetchone()
         
@@ -637,3 +670,390 @@ class ChurnAnalyzer:
                     'setup_required': True
                 }
             }
+    
+    def _analyze_combined_segments(self, start_month: str, end_month: str) -> List[Dict]:
+        """복합 세그먼트 분석 (성별×연령×채널)"""
+        
+        query = text("""
+        WITH segment_monthly AS (
+            SELECT 
+                gender || '/' || age_band || '/' || channel AS segment_value,
+                DATE_TRUNC('month', created_at) AS month,
+                user_hash
+            FROM events 
+            WHERE DATE_TRUNC('month', created_at) BETWEEN :start_month AND :end_month
+              AND gender IS NOT NULL 
+              AND age_band IS NOT NULL 
+              AND channel IS NOT NULL
+              AND gender != 'Unknown'
+              AND age_band != 'Unknown'
+              AND channel != 'Unknown'
+            GROUP BY gender, age_band, channel, DATE_TRUNC('month', created_at), user_hash
+        ),
+        segment_months AS (
+            SELECT DISTINCT segment_value, month FROM segment_monthly
+        ),
+        month_pairs AS (
+            SELECT 
+                sm.segment_value,
+                sm.month AS curr_month,
+                DATE_TRUNC('month', (sm.month - INTERVAL '1 month')) AS prev_month
+            FROM segment_months sm
+            WHERE sm.month > :start_month
+        ),
+        prev_active AS (
+            SELECT 
+                mp.segment_value,
+                mp.curr_month,
+                COUNT(DISTINCT m.user_hash) AS previous_active
+            FROM month_pairs mp
+            LEFT JOIN segment_monthly m
+              ON m.segment_value = mp.segment_value AND m.month = mp.prev_month
+            GROUP BY mp.segment_value, mp.curr_month
+        ),
+        curr_active AS (
+            SELECT 
+                mp.segment_value,
+                mp.curr_month,
+                COUNT(DISTINCT m.user_hash) AS current_active
+            FROM month_pairs mp
+            LEFT JOIN segment_monthly m
+              ON m.segment_value = mp.segment_value AND m.month = mp.curr_month
+            GROUP BY mp.segment_value, mp.curr_month
+        ),
+        churned AS (
+            SELECT 
+                mp.segment_value,
+                mp.curr_month,
+                COUNT(DISTINCT pm.user_hash) AS churned_users
+            FROM month_pairs mp
+            LEFT JOIN segment_monthly pm
+              ON pm.segment_value = mp.segment_value AND pm.month = mp.prev_month
+            LEFT JOIN segment_monthly cm
+              ON cm.segment_value = mp.segment_value AND cm.month = mp.curr_month AND cm.user_hash = pm.user_hash
+            WHERE cm.user_hash IS NULL
+            GROUP BY mp.segment_value, mp.curr_month
+        ),
+        aggregated AS (
+            SELECT 
+                mp.segment_value,
+                SUM(COALESCE(pa.previous_active, 0)) AS previous_active_sum,
+                SUM(COALESCE(ca.current_active, 0)) AS current_active_sum,
+                SUM(COALESCE(ch.churned_users, 0)) AS churned_sum
+            FROM month_pairs mp
+            LEFT JOIN prev_active pa ON pa.segment_value = mp.segment_value AND pa.curr_month = mp.curr_month
+            LEFT JOIN curr_active ca ON ca.segment_value = mp.segment_value AND ca.curr_month = mp.curr_month
+            LEFT JOIN churned ch ON ch.segment_value = mp.segment_value AND ch.curr_month = mp.curr_month
+            GROUP BY mp.segment_value
+        )
+        SELECT 
+            segment_value,
+            current_active_sum AS current_active,
+            previous_active_sum AS previous_active,
+            churned_sum AS churned,
+            CASE 
+                WHEN previous_active_sum > 0 THEN ROUND((churned_sum::float / previous_active_sum * 100), 1)
+                ELSE 0 
+            END AS churn_rate,
+            CASE WHEN previous_active_sum < :min_sample THEN true ELSE false END AS is_uncertain
+        FROM aggregated
+        WHERE previous_active_sum > 0
+        ORDER BY churn_rate DESC
+        """)
+        
+        results = self.db.execute(query, {
+            "start_month": f"{start_month}-01",
+            "end_month": f"{end_month}-01",
+            "min_sample": self.min_sample_size
+        }).fetchall()
+        
+        return [
+            {
+                "segment_value": row.segment_value,
+                "current_active": row.current_active,
+                "previous_active": row.previous_active,
+                "churned_users": row.churned,
+                "churn_rate": row.churn_rate,
+                "is_uncertain": row.is_uncertain
+            }
+            for row in results
+        ]
+    
+    def _analyze_weekday_pattern(self, start_month: str, end_month: str) -> List[Dict]:
+        """활동 요일 패턴 세그먼트 분석"""
+        
+        query = text("""
+        WITH user_weekday_stats AS (
+            SELECT 
+                user_hash,
+                DATE_TRUNC('month', created_at) AS month,
+                COUNT(CASE WHEN EXTRACT(DOW FROM created_at) BETWEEN 1 AND 5 THEN 1 END) AS weekday_count,
+                COUNT(CASE WHEN EXTRACT(DOW FROM created_at) IN (0, 6) THEN 1 END) AS weekend_count,
+                COUNT(*) AS total_count
+            FROM events
+            WHERE DATE_TRUNC('month', created_at) BETWEEN :start_month AND :end_month
+            GROUP BY user_hash, DATE_TRUNC('month', created_at)
+        ),
+        user_segments AS (
+            SELECT 
+                user_hash,
+                month,
+                CASE 
+                    WHEN weekday_count::float / NULLIF(total_count, 0) >= 0.7 THEN '평일주력'
+                    WHEN weekend_count::float / NULLIF(total_count, 0) >= 0.5 THEN '주말주력'
+                    WHEN weekday_count = total_count THEN '평일만'
+                    WHEN weekend_count = total_count THEN '주말만'
+                    ELSE '혼합'
+                END AS segment_value
+            FROM user_weekday_stats
+        ),
+        month_pairs AS (
+            SELECT DISTINCT
+                us.segment_value,
+                us.month AS curr_month,
+                DATE_TRUNC('month', (us.month - INTERVAL '1 month')) AS prev_month
+            FROM user_segments us
+            WHERE us.month > :start_month
+        ),
+        aggregated AS (
+            SELECT 
+                mp.segment_value,
+                COUNT(DISTINCT CASE WHEN ps.month = mp.prev_month THEN ps.user_hash END) AS previous_active,
+                COUNT(DISTINCT CASE WHEN cs.month = mp.curr_month THEN cs.user_hash END) AS current_active,
+                COUNT(DISTINCT CASE 
+                    WHEN ps.month = mp.prev_month 
+                    AND NOT EXISTS (
+                        SELECT 1 FROM user_segments cs2 
+                        WHERE cs2.user_hash = ps.user_hash 
+                        AND cs2.month = mp.curr_month
+                    )
+                    THEN ps.user_hash 
+                END) AS churned_users
+            FROM month_pairs mp
+            LEFT JOIN user_segments ps ON ps.segment_value = mp.segment_value AND ps.month = mp.prev_month
+            LEFT JOIN user_segments cs ON cs.segment_value = mp.segment_value AND cs.month = mp.curr_month
+            GROUP BY mp.segment_value
+        )
+        SELECT 
+            segment_value,
+            current_active,
+            previous_active,
+            churned_users,
+            CASE 
+                WHEN previous_active > 0 THEN ROUND((churned_users::float / previous_active * 100), 1)
+                ELSE 0 
+            END AS churn_rate,
+            CASE WHEN previous_active < :min_sample THEN true ELSE false END AS is_uncertain
+        FROM aggregated
+        WHERE previous_active > 0
+        ORDER BY churn_rate DESC
+        """)
+        
+        results = self.db.execute(query, {
+            "start_month": f"{start_month}-01",
+            "end_month": f"{end_month}-01",
+            "min_sample": self.min_sample_size
+        }).fetchall()
+        
+        return [
+            {
+                "segment_value": row.segment_value,
+                "current_active": row.current_active,
+                "previous_active": row.previous_active,
+                "churned_users": row.churned_users,
+                "churn_rate": row.churn_rate,
+                "is_uncertain": row.is_uncertain
+            }
+            for row in results
+        ]
+    
+    def _analyze_time_pattern(self, start_month: str, end_month: str) -> List[Dict]:
+        """활동 시간대 세그먼트 분석"""
+        
+        query = text("""
+        WITH user_hour_stats AS (
+            SELECT 
+                user_hash,
+                DATE_TRUNC('month', created_at) AS month,
+                COUNT(CASE WHEN EXTRACT(HOUR FROM created_at) BETWEEN 6 AND 11 THEN 1 END) AS morning_count,
+                COUNT(CASE WHEN EXTRACT(HOUR FROM created_at) BETWEEN 12 AND 17 THEN 1 END) AS afternoon_count,
+                COUNT(CASE WHEN EXTRACT(HOUR FROM created_at) BETWEEN 18 AND 23 THEN 1 END) AS evening_count,
+                COUNT(CASE WHEN EXTRACT(HOUR FROM created_at) BETWEEN 0 AND 5 THEN 1 END) AS night_count,
+                COUNT(*) AS total_count
+            FROM events
+            WHERE DATE_TRUNC('month', created_at) BETWEEN :start_month AND :end_month
+            GROUP BY user_hash, DATE_TRUNC('month', created_at)
+        ),
+        user_segments AS (
+            SELECT 
+                user_hash,
+                month,
+                CASE 
+                    WHEN morning_count = (SELECT MAX(v) FROM UNNEST(ARRAY[morning_count, afternoon_count, evening_count, night_count]) AS v)
+                    THEN '오전'
+                    WHEN afternoon_count = (SELECT MAX(v) FROM UNNEST(ARRAY[morning_count, afternoon_count, evening_count, night_count]) AS v)
+                    THEN '오후'
+                    WHEN evening_count = (SELECT MAX(v) FROM UNNEST(ARRAY[morning_count, afternoon_count, evening_count, night_count]) AS v)
+                    THEN '저녁'
+                    WHEN night_count = (SELECT MAX(v) FROM UNNEST(ARRAY[morning_count, afternoon_count, evening_count, night_count]) AS v)
+                    THEN '새벽'
+                    ELSE '혼합'
+                END AS segment_value
+            FROM user_hour_stats
+        ),
+        month_pairs AS (
+            SELECT DISTINCT
+                us.segment_value,
+                us.month AS curr_month,
+                DATE_TRUNC('month', (us.month - INTERVAL '1 month')) AS prev_month
+            FROM user_segments us
+            WHERE us.month > :start_month
+        ),
+        aggregated AS (
+            SELECT 
+                mp.segment_value,
+                COUNT(DISTINCT CASE WHEN ps.month = mp.prev_month THEN ps.user_hash END) AS previous_active,
+                COUNT(DISTINCT CASE WHEN cs.month = mp.curr_month THEN cs.user_hash END) AS current_active,
+                COUNT(DISTINCT CASE 
+                    WHEN ps.month = mp.prev_month 
+                    AND NOT EXISTS (
+                        SELECT 1 FROM user_segments cs2 
+                        WHERE cs2.user_hash = ps.user_hash 
+                        AND cs2.month = mp.curr_month
+                    )
+                    THEN ps.user_hash 
+                END) AS churned_users
+            FROM month_pairs mp
+            LEFT JOIN user_segments ps ON ps.segment_value = mp.segment_value AND ps.month = mp.prev_month
+            LEFT JOIN user_segments cs ON cs.segment_value = mp.segment_value AND cs.month = mp.curr_month
+            GROUP BY mp.segment_value
+        )
+        SELECT 
+            segment_value,
+            current_active,
+            previous_active,
+            churned_users,
+            CASE 
+                WHEN previous_active > 0 THEN ROUND((churned_users::float / previous_active * 100), 1)
+                ELSE 0 
+            END AS churn_rate,
+            CASE WHEN previous_active < :min_sample THEN true ELSE false END AS is_uncertain
+        FROM aggregated
+        WHERE previous_active > 0
+        ORDER BY churn_rate DESC
+        """)
+        
+        results = self.db.execute(query, {
+            "start_month": f"{start_month}-01",
+            "end_month": f"{end_month}-01",
+            "min_sample": self.min_sample_size
+        }).fetchall()
+        
+        return [
+            {
+                "segment_value": row.segment_value,
+                "current_active": row.current_active,
+                "previous_active": row.previous_active,
+                "churned_users": row.churned_users,
+                "churn_rate": row.churn_rate,
+                "is_uncertain": row.is_uncertain
+            }
+            for row in results
+        ]
+    
+    def _analyze_action_type_segment(self, start_month: str, end_month: str) -> List[Dict]:
+        """이벤트 타입별 세그먼트 분석"""
+        
+        query = text(f"""
+        WITH user_action_stats AS (
+            SELECT 
+                user_hash,
+                DATE_TRUNC('month', created_at) AS month,
+                COUNT(CASE WHEN action = 'view' THEN 1 END) AS view_count,
+                COUNT(CASE WHEN action = 'login' THEN 1 END) AS login_count,
+                COUNT(CASE WHEN action = 'comment' THEN 1 END) AS comment_count,
+                COUNT(CASE WHEN action = 'like' THEN 1 END) AS like_count,
+                COUNT(CASE WHEN action = 'post' THEN 1 END) AS post_count,
+                COUNT(*) AS total_count
+            FROM events
+            WHERE DATE_TRUNC('month', created_at) BETWEEN :start_month AND :end_month
+            GROUP BY user_hash, DATE_TRUNC('month', created_at)
+        ),
+        user_segments AS (
+            SELECT 
+                user_hash,
+                month,
+                CASE 
+                    WHEN view_count = (SELECT MAX(v) FROM UNNEST(ARRAY[view_count, login_count, comment_count, like_count, post_count]) AS v)
+                    THEN 'view'
+                    WHEN login_count = (SELECT MAX(v) FROM UNNEST(ARRAY[view_count, login_count, comment_count, like_count, post_count]) AS v)
+                    THEN 'login'
+                    WHEN comment_count = (SELECT MAX(v) FROM UNNEST(ARRAY[view_count, login_count, comment_count, like_count, post_count]) AS v)
+                    THEN 'comment'
+                    WHEN like_count = (SELECT MAX(v) FROM UNNEST(ARRAY[view_count, login_count, comment_count, like_count, post_count]) AS v)
+                    THEN 'like'
+                    WHEN post_count = (SELECT MAX(v) FROM UNNEST(ARRAY[view_count, login_count, comment_count, like_count, post_count]) AS v)
+                    THEN 'post'
+                    ELSE 'mixed'
+                END AS segment_value
+            FROM user_action_stats
+        ),
+        month_pairs AS (
+            SELECT DISTINCT
+                us.segment_value,
+                us.month AS curr_month,
+                DATE_TRUNC('month', (us.month - INTERVAL '1 month')) AS prev_month
+            FROM user_segments us
+            WHERE us.month > :start_month
+        ),
+        aggregated AS (
+            SELECT 
+                mp.segment_value,
+                COUNT(DISTINCT CASE WHEN ps.month = mp.prev_month THEN ps.user_hash END) AS previous_active,
+                COUNT(DISTINCT CASE WHEN cs.month = mp.curr_month THEN cs.user_hash END) AS current_active,
+                COUNT(DISTINCT CASE 
+                    WHEN ps.month = mp.prev_month 
+                    AND NOT EXISTS (
+                        SELECT 1 FROM user_segments cs2 
+                        WHERE cs2.user_hash = ps.user_hash 
+                        AND cs2.month = mp.curr_month
+                    )
+                    THEN ps.user_hash 
+                END) AS churned_users
+            FROM month_pairs mp
+            LEFT JOIN user_segments ps ON ps.segment_value = mp.segment_value AND ps.month = mp.prev_month
+            LEFT JOIN user_segments cs ON cs.segment_value = mp.segment_value AND cs.month = mp.curr_month
+            GROUP BY mp.segment_value
+        )
+        SELECT 
+            segment_value,
+            current_active,
+            previous_active,
+            churned_users,
+            CASE 
+                WHEN previous_active > 0 THEN ROUND((churned_users::float / previous_active * 100), 1)
+                ELSE 0 
+            END AS churn_rate,
+            CASE WHEN previous_active < :min_sample THEN true ELSE false END AS is_uncertain
+        FROM aggregated
+        WHERE previous_active > 0
+        ORDER BY churn_rate DESC
+        """)
+        
+        results = self.db.execute(query, {
+            "start_month": f"{start_month}-01",
+            "end_month": f"{end_month}-01",
+            "min_sample": self.min_sample_size
+        }).fetchall()
+        
+        return [
+            {
+                "segment_value": row.segment_value,
+                "current_active": row.current_active,
+                "previous_active": row.previous_active,
+                "churned_users": row.churned_users,
+                "churn_rate": row.churn_rate,
+                "is_uncertain": row.is_uncertain
+            }
+            for row in results
+        ]

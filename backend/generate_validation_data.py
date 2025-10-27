@@ -54,7 +54,7 @@ class ValidationDataGenerator:
         events_data = [
             # 2024-01월 (이전 월)
             {'user_hash': 'user_001', 'created_at': '2024-01-15 10:00:00', 'action': 'login'},
-            {'user_hash': 'user_001', 'created_at': '2024-01-20 14:00:00', 'action': 'purchase'},
+            {'user_hash': 'user_001', 'created_at': '2024-01-20 14:00:00', 'action': 'post'},
             {'user_hash': 'user_002', 'created_at': '2024-01-10 09:00:00', 'action': 'login'},
             {'user_hash': 'user_003', 'created_at': '2024-01-25 16:00:00', 'action': 'login'},
             {'user_hash': 'user_004', 'created_at': '2024-01-12 11:00:00', 'action': 'login'},
@@ -106,12 +106,12 @@ class ValidationDataGenerator:
             
             # 높은 활동 사용자들 (3개 이상 이벤트)
             {'user_hash': 'high_activity_001', 'created_at': '2024-01-15 10:00:00', 'action': 'login'},
-            {'user_hash': 'high_activity_001', 'created_at': '2024-01-20 14:00:00', 'action': 'purchase'},
+            {'user_hash': 'high_activity_001', 'created_at': '2024-01-20 14:00:00', 'action': 'post'},
             {'user_hash': 'high_activity_001', 'created_at': '2024-01-25 16:00:00', 'action': 'view'},
             {'user_hash': 'high_activity_001', 'created_at': '2024-02-10 10:00:00', 'action': 'login'},
             
             {'user_hash': 'high_activity_002', 'created_at': '2024-01-12 11:00:00', 'action': 'login'},
-            {'user_hash': 'high_activity_002', 'created_at': '2024-01-18 13:00:00', 'action': 'purchase'},
+            {'user_hash': 'high_activity_002', 'created_at': '2024-01-18 13:00:00', 'action': 'post'},
             {'user_hash': 'high_activity_002', 'created_at': '2024-01-22 15:00:00', 'action': 'view'},
             {'user_hash': 'high_activity_002', 'created_at': '2024-02-05 09:00:00', 'action': 'login'},
         ]
@@ -155,7 +155,7 @@ class ValidationDataGenerator:
         events_data = [
             # 남성 사용자들 - 높은 이탈률
             {'user_hash': 'male_young_web', 'created_at': '2024-01-15 10:00:00', 'action': 'login'},
-            {'user_hash': 'male_young_web', 'created_at': '2024-01-20 14:00:00', 'action': 'purchase'},
+            {'user_hash': 'male_young_web', 'created_at': '2024-01-20 14:00:00', 'action': 'post'},
             {'user_hash': 'male_young_app', 'created_at': '2024-01-10 09:00:00', 'action': 'login'},
             {'user_hash': 'male_middle_web', 'created_at': '2024-01-25 16:00:00', 'action': 'login'},
             # 남성 사용자들은 2월에 활동 없음 (이탈)
@@ -328,7 +328,7 @@ class ValidationDataGenerator:
                     events_data.append({
                         'user_hash': user_hash,
                         'created_at': (event_date + timedelta(days=10)).strftime('%Y-%m-%d %H:%M:%S'),
-                        'action': 'purchase'
+                        'action': 'post'
                     })
             
             elif activity_level == 1:  # 활성 (1월, 2월만 활동)

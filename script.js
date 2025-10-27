@@ -63,6 +63,10 @@ function setupEventListeners() {
     safeAddEventListener('genderSegment', 'change', updateSegmentOptions);
     safeAddEventListener('ageSegment', 'change', updateSegmentOptions);
     safeAddEventListener('channelSegment', 'change', updateSegmentOptions);
+    safeAddEventListener('combinedSegment', 'change', updateSegmentOptions);
+    safeAddEventListener('weekdayPattern', 'change', updateSegmentOptions);
+    safeAddEventListener('timePattern', 'change', updateSegmentOptions);
+    safeAddEventListener('actionType', 'change', updateSegmentOptions);
 
 }
 
@@ -359,6 +363,15 @@ function validateCSVFile(file) {
             // 전역 변수에 저장
             window.csvData = data;
             
+    // 백엔드에 데이터 업로드 (임시로 비활성화)
+    // uploadToBackend(data).then(backendResult => {
+    //     if (backendResult.success) {
+    //         console.log('[DEBUG] 백엔드 업로드 성공:', backendResult.message);
+    //     } else {
+    //         console.warn('[WARNING] 백엔드 업로드 실패:', backendResult.error);
+    //     }
+    // });
+            
             resolve({
                 success: true,
                 rows: data.length,
@@ -368,6 +381,43 @@ function validateCSVFile(file) {
         };
         reader.readAsText(file);
     });
+}
+
+// 백엔드에 데이터 업로드
+async function uploadToBackend(data) {
+    try {
+        // 백엔드 형식에 맞게 변환
+        const events = data.map(row => ({
+            user_hash: row.user_hash,
+            created_at: row.created_at,
+            action: row.action,
+            gender: row.gender === 'Unknown' ? null : row.gender,
+            age_band: row.age_band === 'Unknown' ? null : row.age_band,
+            channel: row.channel === 'Unknown' ? null : row.channel
+        }));
+        
+        // 데이터가 너무 많으면 청크로 나누어 전송
+        const chunkSize = 1000;
+        for (let i = 0; i < events.length; i += chunkSize) {
+            const chunk = events.slice(i, i + chunkSize);
+            const response = await fetch('http://localhost:8000/events/bulk', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(chunk)
+            });
+            
+            if (!response.ok) {
+                console.warn(`[WARNING] 백엔드 업로드 청크 ${Math.floor(i / chunkSize) + 1} 실패`);
+            }
+        }
+        
+        return { success: true, message: `${events.length}개 이벤트 업로드 완료` };
+    } catch (error) {
+        console.error('[ERROR] 백엔드 업로드 오류:', error);
+        return { success: false, error: error.message };
+    }
 }
 
 // 분석 실행
@@ -478,27 +528,60 @@ async function updateMetricCards() {
             previous_active_users: backendResponse.previous_active_users
         };
         
-        // 세그먼트 분석 결과를 전역 변수에 저장 (인사이트 생성 시 사용)
-        if (backendResponse.segments) {
-            window.currentSegmentAnalysis = backendResponse.segments;
-            console.log('[DEBUG] 세그먼트 분석 결과 저장:', window.currentSegmentAnalysis);
+        // 세그먼트 분석 결과를 별도 API로 가져오기
+        // 날짜를 월 형식으로 변환
+        const startMonth = config.startDate ? config.startDate.substring(0, 7) : '2025-08';
+        const endMonth = config.endDate ? config.endDate.substring(0, 7) : '2025-10';
+        
+        try {
+            const segmentResponse = await fetch(`http://localhost:8000/analysis/segments?start_month=${startMonth}&end_month=${endMonth}`);
+            if (segmentResponse.ok) {
+                const segmentData = await segmentResponse.json();
+                window.currentSegmentAnalysis = segmentData;
+                console.log('[DEBUG] 세그먼트 분석 결과 저장 (별도 API):', window.currentSegmentAnalysis);
+                console.log('[DEBUG] - gender:', segmentData.gender);
+                console.log('[DEBUG] - age_band:', segmentData.age_band);
+                console.log('[DEBUG] - channel:', segmentData.channel);
+                console.log('[DEBUG] - combined:', segmentData.combined);
+                console.log('[DEBUG] - weekday_pattern:', segmentData.weekday_pattern);
+                console.log('[DEBUG] - time_pattern:', segmentData.time_pattern);
+                console.log('[DEBUG] - action_type:', segmentData.action_type);
+                
+                // 세그먼트 분석 결과를 화면에 표시
+                displaySegmentAnalysisResults(segmentData);
+            } else {
+                console.warn('[WARNING] 세그먼트 분석 API 호출 실패:', segmentResponse.status);
+                // 백엔드 응답의 segments 객체 사용 (fallback)
+                if (backendResponse.segments) {
+                    window.currentSegmentAnalysis = backendResponse.segments;
+                    console.log('[DEBUG] 세그먼트 분석 결과 저장 (fallback):', window.currentSegmentAnalysis);
+                    displaySegmentAnalysisResults(backendResponse.segments);
+                }
+            }
+        } catch (error) {
+            console.error('[ERROR] 세그먼트 분석 API 호출 중 오류:', error);
+            // 백엔드 응답의 segments 객체 사용 (fallback)
+            if (backendResponse.segments) {
+                window.currentSegmentAnalysis = backendResponse.segments;
+                console.log('[DEBUG] 세그먼트 분석 결과 저장 (fallback):', window.currentSegmentAnalysis);
+                displaySegmentAnalysisResults(backendResponse.segments);
+            }
         }
         
-        // 백엔드 응답이 모두 0이거나 오류인 경우 프론트엔드 계산 사용
-        const isBackendDataEmpty = metrics.error || 
-            (metrics.churn_rate === 0 && metrics.active_users === 0 && 
-             metrics.reactivated_users === 0 && metrics.long_term_inactive === 0);
+        // 백엔드 오류 또는 빈 데이터인 경우 프론트엔드 계산 사용
+        const hasError = metrics.error !== undefined;
+        const hasNoData = !metrics.churn_rate && !metrics.active_users && !metrics.reactivated_users;
+        const isBackendDataEmpty = hasError || hasNoData;
         
         if (isBackendDataEmpty) {
             if (metrics.error) {
-                addLog(`백엔드 계산 실패: ${metrics.error}`, 'error');
-            } else {
-                addLog('백엔드에서 빈 데이터 반환, 로컬 계산 사용', 'warning');
+                console.warn('[WARNING] 백엔드 계산 실패, 프론트엔드 계산 사용');
             }
             // 폴백으로 프론트엔드 계산 사용
             const fallbackMetrics = calculateMetrics(window.csvData, config);
-            console.log('[DEBUG] 폴백 메트릭 사용:', fallbackMetrics);
+            console.log('[DEBUG] 프론트엔드 계산 결과:', fallbackMetrics);
             updateMetricCardsWithData(fallbackMetrics, config);
+            addLog('프론트엔드 로컬 계산 완료', 'success');
             return;
         }
         
@@ -560,8 +643,12 @@ async function callBackendAPI(config) {
         end_month: endMonth,
         segments: {
             gender: config.segments?.gender ?? false,
-            age_band: config.segments?.ageBand ?? false,
-            channel: config.segments?.channel ?? false
+            age_band: config.segments?.ageBand ?? config.segments?.age_band ?? false,
+            channel: config.segments?.channel ?? false,
+            combined: config.segments?.combined ?? false,
+            weekday_pattern: config.segments?.weekday_pattern ?? false,
+            time_pattern: config.segments?.time_pattern ?? false,
+            action_type: config.segments?.action_type ?? false
         },
         inactivity_days: inactivityThresholds,
         threshold: 1  // 최소 이벤트 수
@@ -999,11 +1086,19 @@ function updateSegmentOptions() {
     const gender = document.getElementById('genderSegment').checked;
     const age = document.getElementById('ageSegment').checked;
     const channel = document.getElementById('channelSegment').checked;
+    const combined = document.getElementById('combinedSegment').checked;
+    const weekdayPattern = document.getElementById('weekdayPattern').checked;
+    const timePattern = document.getElementById('timePattern').checked;
+    const actionType = document.getElementById('actionType').checked;
     
     const segments = [];
     if (gender) segments.push('성별');
     if (age) segments.push('연령대');
     if (channel) segments.push('채널');
+    if (combined) segments.push('복합세그먼트');
+    if (weekdayPattern) segments.push('활동요일');
+    if (timePattern) segments.push('활동시간대');
+    if (actionType) segments.push('이벤트타입');
     
     if (segments.length === 0) {
         addLog('세그먼트 옵션 변경: 모든 세그먼트 해제됨', 'info');
@@ -1419,8 +1514,12 @@ function getCurrentConfig() {
         endDate: document.getElementById('endDate').value,
         segments: {
             gender: document.getElementById('genderSegment').checked,
-            ageBand: document.getElementById('ageSegment').checked,
-            channel: document.getElementById('channelSegment').checked
+            age_band: document.getElementById('ageSegment').checked,
+            channel: document.getElementById('channelSegment').checked,
+            combined: document.getElementById('combinedSegment').checked,
+            weekday_pattern: document.getElementById('weekdayPattern').checked,
+            time_pattern: document.getElementById('timePattern').checked,
+            action_type: document.getElementById('actionType').checked
         }
     };
 }
@@ -1467,6 +1566,60 @@ function getPreviousMonth(month) {
     const date = new Date(month + '-01');
     date.setMonth(date.getMonth() - 1);
     return date.toISOString().substring(0, 7);
+}
+
+// 세그먼트 분석 결과를 화면에 표시
+function displaySegmentAnalysisResults(segmentData) {
+    const resultsContainer = document.getElementById('segmentAnalysisResults');
+    if (!resultsContainer) {
+        console.warn('[WARNING] segmentAnalysisResults 요소를 찾을 수 없습니다');
+        return;
+    }
+    
+    let html = '<ul class="list-unstyled">';
+    
+    // 각 세그먼트별 결과 표시
+    Object.keys(segmentData).forEach(segmentType => {
+        const segment = segmentData[segmentType];
+        if (!segment || !Array.isArray(segment) || segment.length === 0) return;
+        
+        const segmentName = getSegmentDisplayName(segmentType);
+        html += `<li class="mb-3"><strong class="text-primary">${segmentName}</strong></li>`;
+        
+        segment.forEach(item => {
+            const churnRate = item.churn_rate ? item.churn_rate.toFixed(2) : '0.00';
+            const activeUsers = item.active_users || 0;
+            const churnedUsers = item.churned_users || 0;
+            
+            html += `
+                <li class="mb-2 ms-3">
+                    <i class="fas fa-circle text-info me-2" style="font-size: 0.5rem;"></i>
+                    <span class="fw-bold">${item.segment_value}</span>: 
+                    이탈률 <span class="text-danger">${churnRate}%</span> 
+                    (활성: ${activeUsers.toLocaleString()}명, 이탈: ${churnedUsers.toLocaleString()}명)
+                </li>
+            `;
+        });
+    });
+    
+    html += '</ul>';
+    resultsContainer.innerHTML = html;
+    
+    console.log('[DEBUG] 세그먼트 분석 결과 화면 표시 완료');
+}
+
+// 세그먼트 타입의 표시 이름 반환
+function getSegmentDisplayName(segmentType) {
+    const names = {
+        'gender': '성별',
+        'age_band': '연령대',
+        'channel': '채널',
+        'combined': '복합 세그먼트',
+        'weekday_pattern': '활동 요일',
+        'time_pattern': '활동 시간대',
+        'action_type': '이벤트 타입'
+    };
+    return names[segmentType] || segmentType;
 }
 
 // 세그먼트 데이터 필터링
@@ -1534,7 +1687,7 @@ function calculateSegmentAnalysis(data, config) {
     }
     
     // 연령대 분석
-    if (config.segments.ageBand) {
+    if (config.segments.age_band) {
         const ageBands = [...new Set(filteredData.map(row => row.age_band).filter(age => age && age !== 'Unknown'))];
         const sortedAgeBands = sortAgeBands(ageBands);
         segments.age_band = analyzeSegmentByTypeFullRange(filteredData, 'age_band', sortedAgeBands, startMonth, endMonth);
@@ -1545,6 +1698,12 @@ function calculateSegmentAnalysis(data, config) {
         segments.channel = analyzeSegmentByTypeFullRange(filteredData, 'channel', ['web', 'app'], startMonth, endMonth);
     }
     
+    // 복합 세그먼트 분석
+    if (config.segments.combined) {
+        segments.combined = analyzeCombinedSegment(filteredData, startMonth, endMonth);
+    }
+    
+    console.log(`[DEBUG] 세그먼트 분석 결과:`, segments);
     return segments;
 }
 
@@ -1678,6 +1837,92 @@ function analyzeSegmentByType(data, segmentType, segmentValues, currentMonth, pr
             churned_users: churnedUsers.length,
             churn_rate: Math.round(churnRate * 10) / 10,
             is_uncertain: isUncertain
+        });
+    });
+    
+    return results.sort((a, b) => b.churn_rate - a.churn_rate);
+}
+
+// 복합 세그먼트 분석 함수
+function analyzeCombinedSegment(data, startMonth, endMonth) {
+    const results = [];
+    
+    // 분석할 월 범위 생성
+    const months = generateMonthRange(startMonth, endMonth);
+    if (months.length < 2) {
+        console.log(`[DEBUG] 복합 세그먼트 분석: 충분한 월 데이터가 없음`);
+        return [];
+    }
+    
+    // 성별, 연령대, 채널의 모든 조합 생성
+    const genders = ['M', 'F'];
+    const ageBands = [...new Set(data.map(row => row.age_band).filter(age => age && age !== 'Unknown'))];
+    const channels = ['web', 'app'];
+    
+    // 각 조합에 대해 분석
+    genders.forEach(gender => {
+        ageBands.forEach(ageBand => {
+            channels.forEach(channel => {
+                const segmentValue = `${gender}/${ageBand}/${channel}`;
+                
+                // 해당 조합의 데이터만 필터링
+                const segmentData = data.filter(row => 
+                    row.gender === gender && 
+                    row.age_band === ageBand && 
+                    row.channel === channel
+                );
+                
+                if (segmentData.length === 0) return;
+                
+                // 월별 활성 사용자 계산
+                const activeUsersByMonth = {};
+                segmentData.forEach(row => {
+                    if (!activeUsersByMonth[row.year_month]) {
+                        activeUsersByMonth[row.year_month] = new Set();
+                    }
+                    activeUsersByMonth[row.year_month].add(row.user_hash);
+                });
+                
+                let totalPreviousActive = 0;
+                let totalChurned = 0;
+                let totalCurrentActive = 0;
+                
+                // 모든 월 전환에 대해 집계
+                for (let i = 1; i < months.length; i++) {
+                    const previousMonth = months[i - 1];
+                    const currentMonth = months[i];
+                    
+                    const currentSet = activeUsersByMonth[currentMonth] || new Set();
+                    const previousSet = activeUsersByMonth[previousMonth] || new Set();
+                    
+                    if (previousSet.size > 0) {
+                        totalPreviousActive += previousSet.size;
+                        const churnedUsers = [...previousSet].filter(user => !currentSet.has(user));
+                        totalChurned += churnedUsers.length;
+                    }
+                    
+                    // 마지막 월의 현재 활성 사용자 수
+                    if (i === months.length - 1) {
+                        totalCurrentActive = currentSet.size;
+                    }
+                }
+                
+                if (totalPreviousActive === 0) return;
+                
+                const churnRate = (totalChurned / totalPreviousActive) * 100;
+                const isUncertain = totalPreviousActive < 30;
+                
+                results.push({
+                    segment_value: segmentValue,
+                    current_active: totalCurrentActive,
+                    previous_active: totalPreviousActive,
+                    churned_users: totalChurned,
+                    churn_rate: Math.round(churnRate * 10) / 10,
+                    is_uncertain: isUncertain
+                });
+                
+                console.log(`[DEBUG] 복합세그먼트 ${segmentValue}: 이탈률 ${churnRate.toFixed(1)}% (활성: ${totalCurrentActive}명)`);
+            });
         });
     });
     
@@ -1901,8 +2146,12 @@ async function updateReportWithDynamicData() {
                 end_month: config.endDate.substring(0, 7),
                 segments: {
                     gender: config.segments.gender,
-                    age_band: config.segments.ageBand,
-                    channel: config.segments.channel
+                    age_band: config.segments.ageBand || config.segments.age_band,
+                    channel: config.segments.channel,
+                    combined: config.segments.combined,
+                    weekday_pattern: config.segments.weekday_pattern,
+                    time_pattern: config.segments.time_pattern,
+                    action_type: config.segments.action_type
                 },
                 // 실제 계산된 메트릭 전달
                 calculated_metrics: {
@@ -2013,8 +2262,9 @@ function generateBasicInsights(metrics, segmentAnalysis, chartData, config = {})
             );
             
             if (highestAge.churn_rate > 20) {
-                const uncertainNote = highestAge.is_uncertain ? ' (모수 부족으로 Uncertain 표기)' : '';
-                insights.push(`🎯 ${highestAge.segment_value} 연령대에서 높은 이탈률(${highestAge.churn_rate.toFixed(1)}%)을 보입니다${uncertainNote}.`);
+                const uncertainNote = highestAge.is_uncertain ? ' (모수 부족)' : '';
+                const formattedAge = formatAgeBand(highestAge.segment_value);
+                insights.push(`👴 ${formattedAge} 세그먼트에서 높은 이탈률(${highestAge.churn_rate.toFixed(1)}%)을 보입니다${uncertainNote}.`);
             }
         }
         
@@ -2028,13 +2278,34 @@ function generateBasicInsights(metrics, segmentAnalysis, chartData, config = {})
                 (prev.churn_rate < current.churn_rate) ? prev : current
             );
             
-            if (Math.abs(highest.churn_rate - lowest.churn_rate) > 5) {
-                const highName = highest.segment_value === 'app' ? '모바일 앱' : 
-                               highest.segment_value === 'web' ? '웹' : highest.segment_value;
-                const lowName = lowest.segment_value === 'app' ? '모바일 앱' : 
-                               lowest.segment_value === 'web' ? '웹' : lowest.segment_value;
-                insights.push(`📱 ${highName} 채널의 이탈률(${highest.churn_rate.toFixed(1)}%)이 ${lowName}(${lowest.churn_rate.toFixed(1)}%) 대비 높습니다.`);
+            if (Math.abs(highest.churn_rate - lowest.churn_rate) > 3) {
+                const highName = highest.segment_value === 'app' ? '모바일 앱' : '웹';
+                const lowName = lowest.segment_value === 'app' ? '모바일 앱' : '웹';
+                const uncertainNote = highest.is_uncertain ? ' (모수 부족)' : '';
+                insights.push(`📱 ${highName} 사용자의 이탈률(${highest.churn_rate.toFixed(1)}%)이 ${lowName}(${lowest.churn_rate.toFixed(1)}%) 대비 높습니다${uncertainNote}.`);
             }
+        }
+        
+        // 복합 세그먼트 분석
+        if (segmentAnalysis.combined && segmentAnalysis.combined.length > 0) {
+            const combinedData = segmentAnalysis.combined;
+            const highestCombined = combinedData[0]; // 이미 정렬되어 있음
+            
+            if (highestCombined.churn_rate > 30) {
+                const uncertainNote = highestCombined.is_uncertain ? ' (모수 부족)' : '';
+                insights.push(`🎯 복합 세그먼트 ${highestCombined.segment_value}에서 매우 높은 이탈률(${highestCombined.churn_rate.toFixed(1)}%)을 보입니다${uncertainNote}.`);
+            }
+        }
+    } else {
+        // 세그먼트 분석이 없을 때 기본 메시지
+        insights.push(`📊 세그먼트 분석을 활성화하면 더 상세한 인사이트를 얻을 수 있습니다.`);
+    }
+    
+    // 4. 장기 미접속 사용자 인사이트
+    if ((metrics.longTermInactive || 0) > 0 && (metrics.activeUsers || 0) > 0) {
+        const inactiveRatio = (metrics.longTermInactive / ((metrics.activeUsers || 0) + metrics.longTermInactive)) * 100;
+        if (inactiveRatio > 10) {
+            insights.push(`⏳ 장기 미접속 사용자가 전체의 ${inactiveRatio.toFixed(1)}%입니다. 복귀 전략을 검토하세요.`);
         }
     }
     
@@ -2097,8 +2368,12 @@ function generateBasicActions(metrics, segmentAnalysis) {
     }
     
     // 3. 일반적인 액션
-    const reactivationRate = metrics.reactivatedUsers / (metrics.longTermInactive + metrics.reactivatedUsers) * 100;
-    if (reactivationRate < 10) {
+    if ((metrics.longTermInactive || 0) > 0 && (metrics.reactivatedUsers || 0) > 0) {
+        const reactivationRate = metrics.reactivatedUsers / (metrics.longTermInactive + metrics.reactivatedUsers) * 100;
+        if (reactivationRate < 10) {
+            actions.push("🔄 장기 미접속자 대상 복귀 유도 캠페인 및 개인화된 알림 시스템 구축");
+        }
+    } else if ((metrics.longTermInactive || 0) > 0) {
         actions.push("🔄 장기 미접속자 대상 복귀 유도 캠페인 및 개인화된 알림 시스템 구축");
     }
     
@@ -2172,6 +2447,49 @@ function updateReportSection(insights, actions, dataQuality, llmMetadata = null,
                 });
             }
             
+            // 복합 세그먼트 분석 결과
+            if (segmentAnalysis.combined && segmentAnalysis.combined.length > 0) {
+                segmentHtml += '<li class="mb-2"><strong>복합 세그먼트 이탈률 (성별/연령/채널):</strong></li>';
+                // 상위 5개만 표시
+                segmentAnalysis.combined.slice(0, 5).forEach(segment => {
+                    const uncertainNote = segment.is_uncertain ? ' (Uncertain)' : '';
+                    segmentHtml += `<li class="mb-1 ms-3">• ${segment.segment_value}: ${segment.churn_rate.toFixed(1)}% (활성: ${segment.current_active}명)${uncertainNote}</li>`;
+                });
+            }
+            
+            // 활동 요일 패턴 분석 결과
+            if (segmentAnalysis.weekday_pattern && segmentAnalysis.weekday_pattern.length > 0) {
+                segmentHtml += '<li class="mb-2"><strong>활동 요일 패턴별 이탈률:</strong></li>';
+                segmentAnalysis.weekday_pattern.forEach(segment => {
+                    const uncertainNote = segment.is_uncertain ? ' (Uncertain)' : '';
+                    segmentHtml += `<li class="mb-1 ms-3">• ${segment.segment_value}: ${segment.churn_rate.toFixed(1)}% (활성: ${segment.current_active}명)${uncertainNote}</li>`;
+                });
+            }
+            
+            // 활동 시간대 분석 결과
+            if (segmentAnalysis.time_pattern && segmentAnalysis.time_pattern.length > 0) {
+                segmentHtml += '<li class="mb-2"><strong>활동 시간대별 이탈률:</strong></li>';
+                segmentAnalysis.time_pattern.forEach(segment => {
+                    const uncertainNote = segment.is_uncertain ? ' (Uncertain)' : '';
+                    segmentHtml += `<li class="mb-1 ms-3">• ${segment.segment_value}: ${segment.churn_rate.toFixed(1)}% (활성: ${segment.current_active}명)${uncertainNote}</li>`;
+                });
+            }
+            
+            // 이벤트 타입별 분석 결과
+            if (segmentAnalysis.action_type && segmentAnalysis.action_type.length > 0) {
+                segmentHtml += '<li class="mb-2"><strong>이벤트 타입별 이탈률:</strong></li>';
+                segmentAnalysis.action_type.forEach(segment => {
+                    const actionName = segment.segment_value === 'view' ? '조회' :
+                                     segment.segment_value === 'login' ? '로그인' :
+                                     segment.segment_value === 'comment' ? '댓글' :
+                                     segment.segment_value === 'like' ? '좋아요' :
+                                     segment.segment_value === 'post' ? '게시글' :
+                                     segment.segment_value === 'mixed' ? '혼합' : segment.segment_value;
+                    const uncertainNote = segment.is_uncertain ? ' (Uncertain)' : '';
+                    segmentHtml += `<li class="mb-1 ms-3">• ${actionName}: ${segment.churn_rate.toFixed(1)}% (활성: ${segment.current_active}명)${uncertainNote}</li>`;
+                });
+            }
+            
             if (segmentHtml) {
                 segmentContainer.innerHTML = segmentHtml;
             }
@@ -2189,8 +2507,5 @@ function updateReportSection(insights, actions, dataQuality, llmMetadata = null,
                 <li class="mb-1">• Unknown 값 비율: ${dataQuality.unknown_ratio}%</li>
             `;
         }
-        
     }
-    
 }
-
