@@ -672,6 +672,27 @@ async function callBackendAPI(config) {
     return result.metrics || result;
 }
 
+// 백엔드 캐시 무효화
+async function clearBackendCache() {
+    try {
+        const response = await fetch('http://localhost:8000/cache/clear', {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            console.warn('캐시 삭제 API 호출 실패:', response.status);
+            return { success: false, message: '캐시 삭제 실패' };
+        }
+        
+        const result = await response.json();
+        console.log('[DEBUG] 캐시 삭제 결과:', result);
+        return { success: true, message: result.message };
+    } catch (error) {
+        console.error('캐시 삭제 중 오류:', error);
+        return { success: false, message: error.message };
+    }
+}
+
 // 상태 카드 업데이트
 function updateStatusCards() {
     // 데이터 상태 업데이트
@@ -1059,7 +1080,7 @@ function formatFileSize(bytes) {
 }
 
 // 설정 변경 핸들러
-function updateDateRange() {
+async function updateDateRange() {
     const startDate = document.getElementById('startDate').value;
     const endDate = document.getElementById('endDate').value;
     
@@ -1076,13 +1097,31 @@ function updateDateRange() {
         
         addLog(`분석 기간 변경: ${startDate} ~ ${endDate} (${diffDays}일)`, 'info');
         
+        // 캐시 무효화
+        try {
+            await clearBackendCache();
+            addLog('이전 분석 결과 캐시가 삭제되었습니다', 'success');
+        } catch (error) {
+            console.warn('캐시 삭제 실패:', error);
+        }
+        
+        // 전역 세그먼트 분석 결과 초기화
+        window.currentSegmentAnalysis = null;
+        
         // 상태 카드 업데이트
         updateStatusCards();
+        
+        // 데이터가 있고 분석이 완료된 상태라면 메트릭을 즉시 재계산
+        if (window.csvData && window.csvData.length > 0) {
+            addLog('날짜 변경으로 인한 메트릭 재계산 중...', 'info');
+            await updateMetricCards();
+            addLog('메트릭 재계산 완료', 'success');
+        }
     }
 }
 
 
-function updateSegmentOptions() {
+async function updateSegmentOptions() {
     const gender = document.getElementById('genderSegment').checked;
     const age = document.getElementById('ageSegment').checked;
     const channel = document.getElementById('channelSegment').checked;
@@ -1106,10 +1145,20 @@ function updateSegmentOptions() {
         addLog(`세그먼트 옵션 변경: ${segments.join(', ')}`, 'info');
     }
     
+    // 캐시 무효화 (세그먼트 변경 시)
+    try {
+        await clearBackendCache();
+    } catch (error) {
+        console.warn('세그먼트 변경 시 캐시 삭제 실패:', error);
+    }
+    
+    // 전역 세그먼트 분석 결과 초기화
+    window.currentSegmentAnalysis = null;
+    
     // 데이터가 있고 분석이 완료된 상태라면 메트릭을 즉시 업데이트
     if (window.csvData && window.csvData.length > 0) {
         // 메트릭도 다시 계산 (세그먼트 변경이 일부 계산에 영향을 줄 수 있음)
-        updateMetricCards();
+        await updateMetricCards();
     }
 }
 

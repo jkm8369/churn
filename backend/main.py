@@ -9,6 +9,10 @@ import redis
 import json
 import os
 from pydantic import BaseModel
+from dotenv import load_dotenv
+
+# 환경 변수 로드
+load_dotenv()
 
 from database import get_db, engine, init_db
 from models import Event, User, ChurnAnalysis, Base
@@ -353,13 +357,16 @@ async def clear_cache():
 async def save_analysis_result(result: dict, db: Session):
     """분석 결과를 DB에 저장 (백그라운드 작업)"""
     try:
+        config = result.get('config', {})
+        metrics = result.get('metrics', {})
+        
         analysis_record = ChurnAnalysis(
             analysis_date=datetime.now(),
-            start_month=result.get('start_month'),
-            end_month=result.get('end_month'),
-            total_churn_rate=result.get('metrics', {}).get('churn_rate'),
-            active_users=result.get('metrics', {}).get('active_users'),
-            analysis_config=json.dumps(result.get('config', {})),
+            start_month=config.get('start_month'),
+            end_month=config.get('end_month'),
+            total_churn_rate=metrics.get('churn_rate'),
+            active_users=metrics.get('active_users'),
+            analysis_config=json.dumps(config),
             results=json.dumps(result)
         )
         
