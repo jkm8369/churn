@@ -46,7 +46,7 @@ http://localhost:8080
 # OpenAI API 키 설정 (필수)
 export OPENAI_API_KEY=your_openai_api_key_here
 
-# 모든 서비스 실행 (PostgreSQL + Redis + API + Frontend)
+# 모든 서비스 실행 (MySQL + Redis + API + Frontend)
 docker-compose up -d
 
 # 로그 확인 (AI 분석 상태 포함)
@@ -61,8 +61,8 @@ curl http://localhost:8000/health
 # 프론트엔드 접속
 curl http://localhost/
 
-# 데이터베이스 연결 확인
-docker exec -it churn_postgres psql -U churn_user -d churn_analysis
+# 데이터베이스 연결 확인 (MySQL)
+docker exec -it churn_mysql mysql -u churn_user -p churn_analysis
 ```
 
 ### 3. 개별 서비스 관리
@@ -240,10 +240,10 @@ docker-compose.yml에서 포트 수정
 docker-compose ps
 
 # 데이터베이스 로그 확인
-docker-compose logs postgres
+docker-compose logs mysql
 
 # 데이터베이스 재시작
-docker-compose restart postgres
+docker-compose restart mysql
 ```
 
 ### 메모리 부족
@@ -261,4 +261,4 @@ docker stats
 
 - 이슈 발생 시: 로그 파일 확인 (`logs/` 디렉토리)
 - 성능 문제: Redis 캐시 상태 확인
-- 데이터 문제: PostgreSQL 연결 및 테이블 상태 확인
+- 데이터 문제: MySQL 연결 및 테이블 상태 확인

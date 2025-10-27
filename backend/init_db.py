@@ -11,21 +11,21 @@ from models import Base
 import redis
 import time
 
-def wait_for_postgres(max_retries=30, delay=2):
-    """PostgreSQL 연결 대기"""
-    print("PostgreSQL 연결 대기 중...")
+def wait_for_database(max_retries=30, delay=2):
+    """데이터베이스 연결 대기"""
+    print("데이터베이스 연결 대기 중...")
     
     for attempt in range(max_retries):
         try:
             if test_connection():
-                print("✅ PostgreSQL 연결 성공!")
+                print("✅ 데이터베이스 연결 성공!")
                 return True
         except Exception as e:
             print(f"❌ 연결 시도 {attempt + 1}/{max_retries} 실패: {e}")
             if attempt < max_retries - 1:
                 time.sleep(delay)
     
-    print("❌ PostgreSQL 연결 실패!")
+    print("❌ 데이터베이스 연결 실패!")
     return False
 
 def wait_for_redis(max_retries=30, delay=2):
@@ -49,24 +49,30 @@ def wait_for_redis(max_retries=30, delay=2):
     return False
 
 def create_database_if_not_exists():
-    """데이터베이스가 없으면 생성"""
+    """데이터베이스가 없으면 생성 (MySQL 전용)"""
+    if not DATABASE_URL.startswith("mysql"):
+        print("✅ SQLite 사용 - 데이터베이스 생성 불필요")
+        return
+        
     try:
-        # 기본 postgres DB에 연결하여 churn_analysis DB 생성
-        base_url = DATABASE_URL.rsplit('/', 1)[0] + '/postgres'
+        # MySQL의 경우 데이터베이스 생성 로직
+        from urllib.parse import urlparse
+        parsed = urlparse(DATABASE_URL)
+        
+        # 데이터베이스 이름을 제외한 기본 연결 URL
+        base_url = f"mysql+pymysql://{parsed.username}:{parsed.password}@{parsed.hostname}:{parsed.port}/"
         engine = create_engine(base_url)
         
         with engine.connect() as conn:
-            # 자동 커밋 모드로 전환
-            conn.execute(text("COMMIT"))
-            
             # 데이터베이스 존재 확인
             result = conn.execute(text(
-                "SELECT 1 FROM pg_database WHERE datname = 'churn_analysis'"
+                f"SELECT 1 FROM information_schema.schemata WHERE schema_name = '{parsed.path[1:]}'"
             ))
             
             if not result.fetchone():
-                print("churn_analysis 데이터베이스 생성 중...")
-                conn.execute(text("CREATE DATABASE churn_analysis"))
+                print(f"{parsed.path[1:]} 데이터베이스 생성 중...")
+                conn.execute(text(f"CREATE DATABASE {parsed.path[1:]}"))
+                conn.commit()
                 print("✅ 데이터베이스 생성 완료!")
             else:
                 print("✅ 데이터베이스가 이미 존재합니다.")
@@ -89,13 +95,24 @@ def create_indexes():
     """추가 인덱스 생성"""
     print("인덱스 생성 중...")
     
+    # SQLite와 MySQL 호환 인덱스
     indexes = [
-        "CREATE INDEX IF NOT EXISTS idx_events_user_month ON events (user_hash, DATE_TRUNC('month', created_at));",
+        "CREATE INDEX IF NOT EXISTS idx_events_user_month ON events (user_hash, strftime('%Y-%m', created_at));",
         "CREATE INDEX IF NOT EXISTS idx_events_created_at_desc ON events (created_at DESC);",
         "CREATE INDEX IF NOT EXISTS idx_events_action_created_at ON events (action, created_at);",
         "CREATE INDEX IF NOT EXISTS idx_monthly_metrics_year_month ON monthly_metrics (year_month);",
         "CREATE INDEX IF NOT EXISTS idx_user_segments_composite ON user_segments (year_month, segment_type, segment_value);",
     ]
+    
+    # MySQL의 경우 DATE_TRUNC 대신 DATE_FORMAT 사용
+    if DATABASE_URL.startswith("mysql"):
+        indexes = [
+            "CREATE INDEX IF NOT EXISTS idx_events_user_month ON events (user_hash, DATE_FORMAT(created_at, '%Y-%m'));",
+            "CREATE INDEX IF NOT EXISTS idx_events_created_at_desc ON events (created_at DESC);",
+            "CREATE INDEX IF NOT EXISTS idx_events_action_created_at ON events (action, created_at);",
+            "CREATE INDEX IF NOT EXISTS idx_monthly_metrics_year_month ON monthly_metrics (year_month);",
+            "CREATE INDEX IF NOT EXISTS idx_user_segments_composite ON user_segments (year_month, segment_type, segment_value);",
+        ]
     
     try:
         from database import engine
@@ -181,16 +198,16 @@ def main():
     
     success = True
     
-    # 1. PostgreSQL 연결 대기
-    if not wait_for_postgres():
+    # 1. 데이터베이스 연결 대기
+    if not wait_for_database():
         success = False
     
     # 2. Redis 연결 대기 (선택사항)
     if not wait_for_redis():
         print("⚠️ Redis 연결 실패 - 캐시 기능이 비활성화됩니다.")
     
-    # 3. 데이터베이스 생성
-    if success and "postgresql" in DATABASE_URL:
+    # 3. 데이터베이스 생성 (MySQL 전용)
+    if success:
         create_database_if_not_exists()
     
     # 4. 테이블 생성
