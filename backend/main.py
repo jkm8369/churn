@@ -23,9 +23,9 @@ async def startup_event():
     """서버 시작 시 데이터베이스 테이블 생성"""
     try:
         Base.metadata.create_all(bind=engine)
-        print("✅ 데이터베이스 테이블 초기화 완료")
+        print("데이터베이스 테이블 초기화 완료")
     except Exception as e:
-        print(f"⚠️ 데이터베이스 초기화 실패: {e}")
+        print(f"데이터베이스 초기화 실패: {e}")
 
 # CORS 설정
 app.add_middleware(
@@ -48,10 +48,10 @@ redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 try:
     redis_client = redis.from_url(redis_url, decode_responses=True)
     redis_client.ping()  # Redis 연결 테스트
-    print(f"✅ Redis 연결 성공: {redis_url}")
+    print(f"Redis 연결 성공: {redis_url}")
 except Exception as e:
-    print(f"⚠️ Redis 연결 실패: {e}")
-    print("⚠️ Redis 없이 실행됩니다 (캐싱 비활성화)")
+    print(f"Redis 연결 실패: {e}")
+    print("Redis 없이 실행됩니다 (캐싱 비활성화)")
     redis_client = None
 
 
